@@ -1,3 +1,7 @@
+//! # MQTT
+//!
+//! A library for interacting with the MQTT protocol.
+//!
 mod packet;
 mod qos;
 pub use qos::QoS;

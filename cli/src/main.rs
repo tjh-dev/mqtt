@@ -1,4 +1,8 @@
+use clap::Parser;
 use mqtt::QoS;
+
+#[derive(Parser)]
+struct Arguments {}
 
 #[tokio::main]
 async fn main() -> mqtt::Result<()> {
@@ -8,6 +12,7 @@ async fn main() -> mqtt::Result<()> {
 	let result = client
 		.subscribe(vec![(String::from("#"), QoS::AtMostOnce)])
 		.await;
+
 	tracing::info!(?result);
 
 	handle.await??;

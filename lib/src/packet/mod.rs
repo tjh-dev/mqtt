@@ -1,14 +1,29 @@
 mod publish;
-
+use crate::{qos::InvalidQoS, QoS};
 use bytes::{Buf, BufMut};
 use std::{
 	error, fmt, io, mem,
 	str::{from_utf8, Utf8Error},
 };
 
-use crate::{qos::InvalidQoS, QoS};
-
 pub use self::publish::Publish;
+
+mod control {
+	pub const CONNECT: u8 = 0x10;
+	pub const CONNACK: u8 = 0x20;
+	pub const PUBLISH: u8 = 0x30;
+	pub const PUBACK: u8 = 0x40;
+	pub const PUBREC: u8 = 0x50;
+	pub const PUBREL: u8 = 0x60;
+	pub const PUBCOMP: u8 = 0x70;
+	pub const SUBSCRIBE: u8 = 0x80;
+	pub const SUBACK: u8 = 0x90;
+	pub const UNSUBSCRIBE: u8 = 0xa0;
+	pub const UNSUBACK: u8 = 0xb0;
+	pub const PINGREQ: u8 = 0xc0;
+	pub const PINGRESP: u8 = 0xd0;
+	pub const DISCONNECT: u8 = 0xe0;
+}
 
 #[derive(Debug)]
 pub enum Packet {
@@ -108,12 +123,10 @@ impl Packet {
 		let payload = get_slice(src, length)?;
 
 		match (header & 0xf0, header & 0x0f) {
-			// Connect
-			(0x10, 0x00) => {
+			(control::CONNECT, 0x00) => {
 				unimplemented!()
 			}
-			// ConnAck
-			(0x20, 0x00) => {
+			(control::CONNACK, 0x00) => {
 				if length != 2 {
 					return Err(Error::MalformedPacket("ConnAck packet must have length 2"));
 				}
@@ -135,14 +148,12 @@ impl Packet {
 					code,
 				})
 			}
-			// Publish
-			(0x30, flags) => {
+			(control::PUBLISH, flags) => {
 				let mut buf = io::Cursor::new(payload);
 				let publish = Publish::parse(flags, &mut buf)?;
 				Ok(Self::Publish(publish))
 			}
-			// Subscribe
-			(0x80, 0x02) => {
+			(control::SUBSCRIBE, 0x02) => {
 				let mut buf = io::Cursor::new(payload);
 
 				let id = get_id(&mut buf)?;
@@ -156,8 +167,7 @@ impl Packet {
 
 				Ok(Self::Subscribe { id, filters })
 			}
-			// SubAck
-			(0x90, 0x00) => {
+			(control::SUBACK, 0x00) => {
 				let mut buf = io::Cursor::new(payload);
 
 				let id = get_id(&mut buf)?;
@@ -183,8 +193,7 @@ impl Packet {
 
 				Ok(Self::SubAck { id, result })
 			}
-			// Unsubscribe
-			(0xa0, 0x02) => {
+			(control::UNSUBSCRIBE, 0x02) => {
 				let mut buf = io::Cursor::new(payload);
 
 				let id = get_id(&mut buf)?;
@@ -197,26 +206,26 @@ impl Packet {
 
 				Ok(Self::Unsubscribe { id, filters })
 			}
-			(0xb0, 0x00) => {
+			(control::UNSUBACK, 0x00) => {
 				if length != 2 {
 					return Err(Error::MalformedPacket("UnsubAck packet must have length 2"));
 				}
 				let id = get_id(src)?;
 				Ok(Self::UnsubAck { id })
 			}
-			(0xc0, 0x00) => {
+			(control::PINGREQ, 0x00) => {
 				if length != 0 {
 					return Err(Error::MalformedPacket("PingReq packet must have length 0"));
 				}
 				Ok(Self::PingReq)
 			}
-			(0xd0, 0x00) => {
+			(control::PINGRESP, 0x00) => {
 				if length != 0 {
 					return Err(Error::MalformedPacket("PingResp packet must have length 0"));
 				}
 				Ok(Self::PingResp)
 			}
-			(0xe0, 0x00) => {
+			(control::DISCONNECT, 0x00) => {
 				if length != 0 {
 					return Err(Error::MalformedPacket(
 						"Disconnect packet must have length 0",

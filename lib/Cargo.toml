@@ -1,0 +1,14 @@
+[package]
+name = "mqtt"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+bytes = "1.4"
+tokio = { version = "1.32", optional = true, features = ["net", "io-util", "macros", "sync", "time", "tracing", "rt"] }
+tracing = { version = "0.1", optional = true }
+
+
+[features]
+default = ["tokio", "tracing"]
+tokio = ["dep:tokio", "tracing"]
