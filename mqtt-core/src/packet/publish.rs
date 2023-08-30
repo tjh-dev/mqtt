@@ -75,7 +75,7 @@ impl Publish {
 				let payload = get_slice(src, src.remaining())?.to_vec();
 				let payload = Bytes::from(payload);
 
-				Ok(Self::AtLeastOnce {
+				Ok(Self::ExactlyOnce {
 					id,
 					retain,
 					duplicate,
