@@ -10,7 +10,7 @@ async fn main() -> mqtt_async::Result<()> {
 
 	let (client, handle) = mqtt_async::client(("mqtt.tjh.dev", 1883));
 	let result = client
-		.subscribe(vec![(String::from("#"), QoS::AtMostOnce)])
+		.subscribe(vec![(String::from("fizzle/#"), QoS::AtMostOnce)])
 		.await;
 
 	tracing::info!(?result);

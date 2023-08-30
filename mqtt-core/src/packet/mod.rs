@@ -1,4 +1,6 @@
+mod connect;
 mod publish;
+
 use crate::{qos::InvalidQoS, QoS};
 use bytes::{Buf, BufMut};
 use std::{
@@ -6,7 +8,7 @@ use std::{
 	str::{from_utf8, Utf8Error},
 };
 
-pub use self::publish::Publish;
+pub use self::{connect::Connect, publish::Publish};
 
 mod control {
 	pub const CONNECT: u8 = 0x10;
@@ -27,10 +29,7 @@ mod control {
 
 #[derive(Debug)]
 pub enum Packet {
-	Connect {
-		client_id: String,
-		keep_alive: u16,
-	},
+	Connect(Connect),
 	ConnAck {
 		session_present: bool,
 		code: u8,
@@ -124,7 +123,9 @@ impl Packet {
 
 		match (header & 0xf0, header & 0x0f) {
 			(control::CONNECT, 0x00) => {
-				unimplemented!()
+				let mut buf = io::Cursor::new(payload);
+				let connect = Connect::parse(&mut buf)?;
+				Ok(Self::Connect(connect))
 			}
 			(control::CONNACK, 0x00) => {
 				if length != 2 {
@@ -239,18 +240,16 @@ impl Packet {
 
 	pub fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), WriteError> {
 		match self {
-			Self::Connect {
-				client_id,
-				keep_alive,
-			} => {
-				put_u8(dst, 0x10)?;
-				put_var(dst, 12 + client_id.len())?;
-				put_str(dst, "MQTT")?;
-				put_u8(dst, 0x04)?;
-				put_u8(dst, 0x02)?;
-				put_u16(dst, *keep_alive)?;
-				put_str(dst, client_id)?;
-				Ok(())
+			Self::Connect(connect) => {
+				connect.serialize_to_bytes(dst)
+				// put_u8(dst, 0x10)?;
+				// put_var(dst, 12 + client_id.len())?;
+				// put_str(dst, "MQTT")?;
+				// put_u8(dst, 0x04)?;
+				// put_u8(dst, 0x02)?;
+				// put_u16(dst, *keep_alive)?;
+				// put_str(dst, client_id)?;
+				// Ok(())
 			}
 			Self::Subscribe { id, filters } => {
 				put_u8(dst, 0x82)?;

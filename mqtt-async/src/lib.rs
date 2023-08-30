@@ -5,9 +5,11 @@ mod connection;
 use crate::command::Command;
 
 use self::connection::Connection;
+use mqtt_core::Connect;
 pub use mqtt_core::{Error, Packet, QoS, Result};
 use std::{
 	collections::HashMap,
+	process,
 	time::{Duration, Instant},
 };
 use tokio::{
@@ -44,10 +46,17 @@ async fn client_task<A: ToSocketAddrs + Send>(
 	let mut id = 0;
 
 	connection
-		.write_packet(&Packet::Connect {
-			client_id: String::from("mqtt-async"),
-			keep_alive: 5,
-		})
+		.write_packet(&Packet::Connect(Connect {
+			client_id: format!(
+				"{}/{}:{}",
+				env!("CARGO_PKG_NAME"),
+				env!("CARGO_PKG_VERSION"),
+				process::id()
+			),
+			keep_alive: 30,
+			credentials: Some(("tjh", "sausages").into()),
+			..Default::default()
+		}))
 		.await?;
 
 	let mut pingreq_sent: Option<Instant> = None;

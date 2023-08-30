@@ -3,7 +3,7 @@
 //! A library for interacting with the MQTT protocol.
 //!
 mod packet;
-pub use packet::{Error as PacketError, Packet, WriteError};
+pub use packet::{Connect, Error as PacketError, Packet, Publish, WriteError};
 
 mod qos;
 pub use qos::QoS;
