@@ -2,10 +2,8 @@ mod client;
 mod command;
 mod connection;
 
-use crate::command::Command;
-
-use self::connection::Connection;
-use mqtt_core::Connect;
+use self::{command::Command, connection::Connection};
+use mqtt_core::{Connect, Publish};
 pub use mqtt_core::{Error, Packet, QoS, Result};
 use std::{
 	collections::HashMap,
@@ -13,7 +11,6 @@ use std::{
 	time::{Duration, Instant},
 };
 use tokio::{
-	io::AsyncWriteExt,
 	net::{TcpStream, ToSocketAddrs},
 	sync::{
 		mpsc::{self, UnboundedReceiver},
@@ -40,9 +37,12 @@ async fn client_task<A: ToSocketAddrs + Send>(
 
 	let stream = TcpStream::connect(addr).await?;
 	let mut connection = Connection::new(stream);
-	let mut keep_alive = time::interval(Duration::from_secs(5));
+	let mut keep_alive = time::interval(Duration::from_secs(30));
 
-	let mut inflight_subs: HashMap<u16, oneshot::Sender<Vec<Option<QoS>>>> = Default::default();
+	let mut awaiting_suback: HashMap<u16, oneshot::Sender<Vec<Option<QoS>>>> = Default::default();
+	let mut awaiting_puback: HashMap<u16, oneshot::Sender<()>> = Default::default();
+	let mut awaiting_pubrec: HashMap<u16, oneshot::Sender<()>> = Default::default();
+	let mut awaiting_pubcomp: HashMap<u16, oneshot::Sender<()>> = Default::default();
 	let mut id = 0;
 
 	connection
@@ -66,23 +66,96 @@ async fn client_task<A: ToSocketAddrs + Send>(
 			Some(command) = rx.recv() => {
 				tracing::debug!(?command);
 				match command {
+					Command::Publish { topic, payload, qos, retain, tx } => {
+						let packet = match qos {
+							QoS::AtMostOnce => Packet::Publish(Publish::AtMostOnce {
+								topic,
+								payload,
+								retain,
+							}),
+							QoS::AtLeastOnce => {
+								id += 1;
+								Packet::Publish(Publish::AtLeastOnce {
+									id,
+									topic,
+									payload,
+									retain,
+									duplicate: false
+								})
+							}
+							QoS::ExactlyOnce => {
+								id += 1;
+								Packet::Publish(Publish::ExactlyOnce {
+									id,
+									topic,
+									payload,
+									retain,
+									duplicate: false
+								})
+							}
+						};
+
+						let tx = match qos {
+							QoS::AtMostOnce => Some(tx),
+							QoS::AtLeastOnce => {
+								awaiting_puback.insert(id, tx);
+								None
+							}
+							QoS::ExactlyOnce => {
+								awaiting_pubrec.insert(id, tx);
+								None
+							}
+						};
+
+						connection.write_packet(&packet).await?;
+						if let Some(tx) = tx {
+							tx.send(()).unwrap();
+						}
+					}
 					Command::Subscribe { filters, tx } => {
 						id += 1;
-						inflight_subs.insert(id, tx);
+						awaiting_suback.insert(id, tx);
 						connection.write_packet(&Packet::Subscribe { id, filters }).await?;
 					}
 					Command::Shutdown => {
 						connection.write_packet(&Packet::Disconnect).await?;
-						drop(inflight_subs);
+
+						tracing::debug!("closing client_task with {} inflight subscriptions", awaiting_suback.len());
+						drop(awaiting_suback);
 						break Ok(())
 					}
 				}
 			}
 			Ok(packet) = connection.read_packet() => {
 				match packet {
+					Some(Packet::PubAck { id }) => {
+						let Some(sent) = awaiting_puback.remove(&id) else {
+							tracing::error!("unsolicited PubAck with id {id}");
+							break Err("unsolicited PubAck".into())
+						};
+
+						sent.send(()).unwrap();
+					}
+					Some(Packet::PubRec { id }) => {
+						let Some(sent) = awaiting_pubrec.remove(&id) else {
+							tracing::error!("unsolicited PubRec with id {id}");
+							break Err("unsolicited PubRec".into())
+						};
+
+						awaiting_pubcomp.insert(id, sent);
+						connection.write_packet(&Packet::PubRel { id }).await?;
+					}
+					Some(Packet::PubComp { id }) => {
+						let Some(sent) = awaiting_pubcomp.remove(&id) else {
+							tracing::error!("unsolicited PubComp with id {id}");
+							break Err("unsolicited PubComp".into())
+						};
+
+						sent.send(()).unwrap();
+					}
 					Some(Packet::SubAck { id, result }) => {
 						//
-						let Some(tx) = inflight_subs.remove(&id) else {
+						let Some(tx) = awaiting_suback.remove(&id) else {
 							tracing::error!("unsolicited SubAck with id {id}");
 							break Err("unsolicited SubAck".into())
 						};
