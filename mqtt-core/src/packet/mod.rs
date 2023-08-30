@@ -154,9 +154,44 @@ impl Packet {
 				let publish = Publish::parse(flags, &mut buf)?;
 				Ok(Self::Publish(publish))
 			}
+			(control::PUBACK, 0x00) => {
+				if length != 2 {
+					return Err(Error::MalformedPacket("PubAck packet must have length 2"));
+				}
+
+				let mut buf = io::Cursor::new(payload);
+				let id = get_id(&mut buf)?;
+				Ok(Self::PubAck { id })
+			}
+			(control::PUBREC, 0x00) => {
+				if length != 2 {
+					return Err(Error::MalformedPacket("PubRec packet must have length 2"));
+				}
+
+				let mut buf = io::Cursor::new(payload);
+				let id = get_id(&mut buf)?;
+				Ok(Self::PubRec { id })
+			}
+			(control::PUBREL, 0x02) => {
+				if length != 2 {
+					return Err(Error::MalformedPacket("PubRel packet must have length 2"));
+				}
+
+				let mut buf = io::Cursor::new(payload);
+				let id = get_id(&mut buf)?;
+				Ok(Self::PubRel { id })
+			}
+			(control::PUBCOMP, 0x00) => {
+				if length != 2 {
+					return Err(Error::MalformedPacket("PubComp packet must have length 2"));
+				}
+
+				let mut buf = io::Cursor::new(payload);
+				let id = get_id(&mut buf)?;
+				Ok(Self::PubComp { id })
+			}
 			(control::SUBSCRIBE, 0x02) => {
 				let mut buf = io::Cursor::new(payload);
-
 				let id = get_id(&mut buf)?;
 
 				let mut filters = Vec::new();
@@ -170,7 +205,6 @@ impl Packet {
 			}
 			(control::SUBACK, 0x00) => {
 				let mut buf = io::Cursor::new(payload);
-
 				let id = get_id(&mut buf)?;
 
 				let mut result = Vec::new();
@@ -196,7 +230,6 @@ impl Packet {
 			}
 			(control::UNSUBSCRIBE, 0x02) => {
 				let mut buf = io::Cursor::new(payload);
-
 				let id = get_id(&mut buf)?;
 
 				let mut filters = Vec::new();
@@ -211,7 +244,9 @@ impl Packet {
 				if length != 2 {
 					return Err(Error::MalformedPacket("UnsubAck packet must have length 2"));
 				}
-				let id = get_id(src)?;
+
+				let mut buf = io::Cursor::new(payload);
+				let id = get_id(&mut buf)?;
 				Ok(Self::UnsubAck { id })
 			}
 			(control::PINGREQ, 0x00) => {
@@ -242,14 +277,6 @@ impl Packet {
 		match self {
 			Self::Connect(connect) => {
 				connect.serialize_to_bytes(dst)
-				// put_u8(dst, 0x10)?;
-				// put_var(dst, 12 + client_id.len())?;
-				// put_str(dst, "MQTT")?;
-				// put_u8(dst, 0x04)?;
-				// put_u8(dst, 0x02)?;
-				// put_u16(dst, *keep_alive)?;
-				// put_str(dst, client_id)?;
-				// Ok(())
 			}
 			Self::Subscribe { id, filters } => {
 				put_u8(dst, 0x82)?;
