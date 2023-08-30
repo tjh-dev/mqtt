@@ -6,7 +6,10 @@ use crate::command::Command;
 
 use self::connection::Connection;
 pub use mqtt_core::{Error, Packet, QoS, Result};
-use std::{collections::HashMap, time::Duration};
+use std::{
+	collections::HashMap,
+	time::{Duration, Instant},
+};
 use tokio::{
 	io::AsyncWriteExt,
 	net::{TcpStream, ToSocketAddrs},
@@ -47,6 +50,8 @@ async fn client_task<A: ToSocketAddrs + Send>(
 		})
 		.await?;
 
+	let mut pingreq_sent: Option<Instant> = None;
+
 	loop {
 		tokio::select! {
 			Some(command) = rx.recv() => {
@@ -74,10 +79,16 @@ async fn client_task<A: ToSocketAddrs + Send>(
 						};
 						tx.send(result).unwrap();
 					}
+					Some(Packet::PingResp) => {
+						if let Some(sent) = pingreq_sent.take() {
+							tracing::info!("PingResp received in {:?}", sent.elapsed());
+						}
+					}
 					_ => {}
 				}
 			}
 			_ = keep_alive.tick() => {
+				pingreq_sent.replace(Instant::now());
 				connection.write_packet(&Packet::PingReq).await?;
 			}
 			else => {
