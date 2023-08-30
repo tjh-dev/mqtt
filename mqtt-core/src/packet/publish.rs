@@ -93,7 +93,8 @@ impl Publish {
 				topic,
 				payload,
 			} => {
-				let flags = retain.then_some(FLAG_RETAIN).unwrap_or(0);
+				let flags =
+					retain.then_some(FLAG_RETAIN).unwrap_or(0) | (QoS::AtMostOnce as u8) << 1;
 				super::put_u8(dst, HEADER | flags)?;
 				super::put_var(dst, 2 + topic.len() + payload.len())?;
 				super::put_str(dst, topic)?;
@@ -107,7 +108,8 @@ impl Publish {
 				payload,
 			} => {
 				let flags = retain.then_some(FLAG_RETAIN).unwrap_or(0)
-					| duplicate.then_some(FLAG_DUPLICATE).unwrap_or(0);
+					| duplicate.then_some(FLAG_DUPLICATE).unwrap_or(0)
+					| (QoS::AtLeastOnce as u8) << 1;
 				super::put_u8(dst, HEADER | flags)?;
 				super::put_var(dst, 4 + topic.len() + payload.len())?;
 				super::put_str(dst, topic)?;
@@ -122,7 +124,8 @@ impl Publish {
 				payload,
 			} => {
 				let flags = retain.then_some(FLAG_RETAIN).unwrap_or(0)
-					| duplicate.then_some(FLAG_DUPLICATE).unwrap_or(0);
+					| duplicate.then_some(FLAG_DUPLICATE).unwrap_or(0)
+					| (QoS::ExactlyOnce as u8) << 1;
 				super::put_u8(dst, HEADER | flags)?;
 				super::put_var(dst, 4 + topic.len() + payload.len())?;
 				super::put_str(dst, topic)?;
