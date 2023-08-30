@@ -1,0 +1,393 @@
+mod publish;
+
+use bytes::{Buf, BufMut};
+use std::{
+	error, fmt, io, mem,
+	str::{from_utf8, Utf8Error},
+};
+
+use crate::{qos::InvalidQoS, QoS};
+
+pub use self::publish::Publish;
+
+#[derive(Debug)]
+pub enum Packet {
+	Connect {
+		client_id: String,
+		keep_alive: u16,
+	},
+	ConnAck {
+		session_present: bool,
+		code: u8,
+	},
+	Publish(Publish),
+	PubAck {
+		id: u16,
+	},
+	PubRec {
+		id: u16,
+	},
+	PubRel {
+		id: u16,
+	},
+	PubComp {
+		id: u16,
+	},
+	Subscribe {
+		id: u16,
+		filters: Vec<(String, QoS)>,
+	},
+	SubAck {
+		id: u16,
+		result: Vec<Option<QoS>>,
+	},
+	Unsubscribe {
+		id: u16,
+		filters: Vec<String>,
+	},
+	UnsubAck {
+		id: u16,
+	},
+	PingReq,
+	PingResp,
+	Disconnect,
+}
+
+#[derive(Debug)]
+pub enum Error {
+	Incomplete,
+	InvalidQoS,
+	InvalidHeader,
+	ZeroPacketId,
+	MalformedLength,
+	MalformedPacket(&'static str),
+	Utf8Error(Utf8Error),
+}
+
+#[derive(Debug)]
+pub enum WriteError {
+	Overflow,
+}
+
+impl From<Utf8Error> for Error {
+	fn from(value: Utf8Error) -> Self {
+		Self::Utf8Error(value)
+	}
+}
+
+impl From<InvalidQoS> for Error {
+	fn from(_: InvalidQoS) -> Self {
+		Self::InvalidQoS
+	}
+}
+
+impl fmt::Display for Error {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "{self:?}")
+	}
+}
+
+impl error::Error for Error {}
+
+impl Packet {
+	/// Checks if a complete [`Packet`] can be decoded from `src`.
+	pub fn check(src: &mut io::Cursor<&[u8]>) -> Result<(), Error> {
+		let header = get_u8(src)?;
+		if header == 0 {
+			return Err(Error::InvalidHeader);
+		}
+
+		let length = get_var(src)?;
+		let _ = get_slice(src, length)?;
+		Ok(())
+	}
+
+	pub fn parse(src: &mut io::Cursor<&[u8]>) -> Result<Self, Error> {
+		let header = get_u8(src)?;
+		let length = get_var(src)?;
+		let payload = get_slice(src, length)?;
+
+		match (header & 0xf0, header & 0x0f) {
+			// Connect
+			(0x10, 0x00) => {
+				unimplemented!()
+			}
+			// ConnAck
+			(0x20, 0x00) => {
+				if length != 2 {
+					return Err(Error::MalformedPacket("ConnAck packet must have length 2"));
+				}
+
+				let mut buf = io::Cursor::new(payload);
+				let flags = get_u8(&mut buf)?;
+				let code = get_u8(&mut buf)?;
+
+				if flags & 0xe0 != 0 {
+					return Err(Error::MalformedPacket(
+						"upper 7 bits in ConnAck flags must be zero",
+					));
+				}
+
+				let session_present = flags & 0x01 == 0x01;
+
+				Ok(Self::ConnAck {
+					session_present,
+					code,
+				})
+			}
+			// Publish
+			(0x30, flags) => {
+				let mut buf = io::Cursor::new(payload);
+				let publish = Publish::parse(flags, &mut buf)?;
+				Ok(Self::Publish(publish))
+			}
+			// Subscribe
+			(0x80, 0x02) => {
+				let mut buf = io::Cursor::new(payload);
+
+				let id = get_id(&mut buf)?;
+
+				let mut filters = Vec::new();
+				while buf.has_remaining() {
+					let filter = get_str(&mut buf)?;
+					let qos: QoS = get_u8(&mut buf)?.try_into()?;
+					filters.push((String::from(filter), qos));
+				}
+
+				Ok(Self::Subscribe { id, filters })
+			}
+			// SubAck
+			(0x90, 0x00) => {
+				let mut buf = io::Cursor::new(payload);
+
+				let id = get_id(&mut buf)?;
+
+				let mut result = Vec::new();
+				while buf.has_remaining() {
+					let return_code = get_u8(&mut buf)?;
+					let qos: Option<QoS> = match return_code.try_into() {
+						Ok(qos) => Some(qos),
+						Err(InvalidQoS) => {
+							if return_code == 0x80 {
+								None
+							} else {
+								return Err(Error::MalformedPacket(
+									"invalid return code in SubAck",
+								));
+							}
+						}
+					};
+
+					result.push(qos);
+				}
+
+				Ok(Self::SubAck { id, result })
+			}
+			// Unsubscribe
+			(0xa0, 0x02) => {
+				let mut buf = io::Cursor::new(payload);
+
+				let id = get_id(&mut buf)?;
+
+				let mut filters = Vec::new();
+				while buf.has_remaining() {
+					let filter = get_str(&mut buf)?;
+					filters.push(String::from(filter));
+				}
+
+				Ok(Self::Unsubscribe { id, filters })
+			}
+			(0xb0, 0x00) => {
+				if length != 2 {
+					return Err(Error::MalformedPacket("UnsubAck packet must have length 2"));
+				}
+				let id = get_id(src)?;
+				Ok(Self::UnsubAck { id })
+			}
+			(0xc0, 0x00) => {
+				if length != 0 {
+					return Err(Error::MalformedPacket("PingReq packet must have length 0"));
+				}
+				Ok(Self::PingReq)
+			}
+			(0xd0, 0x00) => {
+				if length != 0 {
+					return Err(Error::MalformedPacket("PingResp packet must have length 0"));
+				}
+				Ok(Self::PingResp)
+			}
+			(0xe0, 0x00) => {
+				if length != 0 {
+					return Err(Error::MalformedPacket(
+						"Disconnect packet must have length 0",
+					));
+				}
+				Ok(Self::Disconnect)
+			}
+			_ => Err(Error::InvalidHeader),
+		}
+	}
+
+	pub fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), WriteError> {
+		match self {
+			Self::Connect {
+				client_id,
+				keep_alive,
+			} => {
+				put_u8(dst, 0x10)?;
+				put_var(dst, 12 + client_id.len())?;
+				put_str(dst, "MQTT")?;
+				put_u8(dst, 0x04)?;
+				put_u8(dst, 0x02)?;
+				put_u16(dst, *keep_alive)?;
+				put_str(dst, client_id)?;
+				Ok(())
+			}
+			Self::Subscribe { id, filters } => {
+				put_u8(dst, 0x82)?;
+
+				let len = 2 + filters
+					.iter()
+					.fold(0usize, |acc, (filter, _)| acc + 3 + filter.len());
+
+				put_var(dst, len)?;
+				put_u16(dst, *id)?;
+				for (filter, qos) in filters {
+					put_str(dst, filter)?;
+					put_u8(dst, *qos as u8)?;
+				}
+
+				Ok(())
+			}
+			Self::PingReq => {
+				put_u16(dst, 0xc000)?;
+				Ok(())
+			}
+			_ => unimplemented!(),
+		}
+	}
+}
+
+#[inline(always)]
+fn require(src: &mut io::Cursor<&[u8]>, len: usize) -> Result<(), Error> {
+	if src.remaining() < len {
+		Err(Error::Incomplete)
+	} else {
+		Ok(())
+	}
+}
+
+#[inline(always)]
+fn require_mut(dst: &mut impl BufMut, len: usize) -> Result<(), WriteError> {
+	if dst.remaining_mut() < len {
+		Err(WriteError::Overflow)
+	} else {
+		Ok(())
+	}
+}
+
+#[inline(always)]
+fn get_u8(src: &mut io::Cursor<&[u8]>) -> Result<u8, Error> {
+	require(src, mem::size_of::<u8>())?;
+	Ok(src.get_u8())
+}
+
+fn put_u8(dst: &mut impl BufMut, val: u8) -> Result<(), WriteError> {
+	require_mut(dst, mem::size_of::<u8>())?;
+	dst.put_u8(val);
+	Ok(())
+}
+
+#[inline(always)]
+fn get_u16(src: &mut io::Cursor<&[u8]>) -> Result<u16, Error> {
+	require(src, mem::size_of::<u16>())?;
+	Ok(src.get_u16())
+}
+
+#[inline(always)]
+fn put_u16(dst: &mut impl BufMut, val: u16) -> Result<(), WriteError> {
+	require_mut(dst, mem::size_of::<u16>())?;
+	dst.put_u16(val);
+	Ok(())
+}
+
+#[inline(always)]
+fn get_id(src: &mut io::Cursor<&[u8]>) -> Result<u16, Error> {
+	let id = get_u16(src)?;
+	if id == 0 {
+		return Err(Error::ZeroPacketId);
+	}
+	Ok(id)
+}
+
+#[inline(always)]
+fn get_slice<'s>(src: &mut io::Cursor<&'s [u8]>, len: usize) -> Result<&'s [u8], Error> {
+	require(src, len)?;
+	let position = src.position() as usize;
+	src.advance(len);
+	Ok(&src.get_ref()[position..position + len])
+}
+
+#[inline(always)]
+fn put_slice(dst: &mut impl BufMut, slice: &[u8]) -> Result<(), WriteError> {
+	require_mut(dst, slice.len())?;
+	dst.put_slice(slice);
+	Ok(())
+}
+
+#[inline(always)]
+fn get_str<'s>(src: &mut io::Cursor<&'s [u8]>) -> Result<&'s str, Error> {
+	let len = get_u16(src)? as usize;
+	let slice = get_slice(src, len)?;
+	let s = from_utf8(slice)?;
+	Ok(s)
+}
+
+#[inline(always)]
+fn put_str(dst: &mut impl BufMut, s: &str) -> Result<(), WriteError> {
+	if s.len() > u16::MAX as usize {
+		return Err(WriteError::Overflow);
+	}
+	put_u16(dst, s.len() as u16)?;
+	put_slice(dst, s.as_bytes())
+}
+
+#[inline(always)]
+fn get_var(src: &mut io::Cursor<&[u8]>) -> Result<usize, Error> {
+	let mut value = 0;
+	for multiplier in [0x01, 0x80, 0x4000, 0x200000, usize::MAX] {
+		// Detect if we've read too many bytes.
+		if multiplier == usize::MAX {
+			return Err(Error::MalformedLength);
+		}
+
+		let encoded = get_u8(src)? as usize;
+		value += (encoded & 0x7f) * multiplier;
+
+		// exit early if we've reached the last byte.
+		if encoded & 0x80 == 0 {
+			break;
+		}
+	}
+
+	Ok(value)
+}
+
+#[inline(always)]
+fn put_var(dst: &mut impl BufMut, mut value: usize) -> Result<(), WriteError> {
+	if value > 268_435_455 {
+		return Err(WriteError::Overflow);
+	}
+
+	loop {
+		let mut encoded = value % 0x80;
+		value /= 0x80;
+		if value > 0 {
+			encoded |= 0x80;
+		}
+		put_u8(dst, encoded as u8)?;
+		if value == 0 {
+			break Ok(());
+		}
+	}
+}
