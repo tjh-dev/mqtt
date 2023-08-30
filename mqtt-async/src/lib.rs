@@ -8,6 +8,7 @@ pub use mqtt_core::{Error, Packet, QoS, Result};
 use std::{
 	collections::HashMap,
 	process,
+	str::from_utf8,
 	time::{Duration, Instant},
 };
 use tokio::{
@@ -54,12 +55,24 @@ async fn client_task<A: ToSocketAddrs + Send>(
 				process::id()
 			),
 			keep_alive: 30,
-			credentials: Some(("tjh", "sausages").into()),
 			..Default::default()
 		}))
 		.await?;
 
+	let Some(Packet::ConnAck {
+		session_present,
+		code,
+	}) = connection.read_packet().await?
+	else {
+		return Ok(());
+	};
+
+	tracing::info!("connected! session_present = {session_present}, code = {code}");
+
 	let mut pingreq_sent: Option<Instant> = None;
+
+	// Discard the first tick from the keep-alive interval.
+	let _ = keep_alive.tick().await;
 
 	loop {
 		tokio::select! {
@@ -128,6 +141,26 @@ async fn client_task<A: ToSocketAddrs + Send>(
 			}
 			Ok(packet) = connection.read_packet() => {
 				match packet {
+					Some(Packet::Publish(publish)) => {
+						match publish {
+							Publish::AtMostOnce { .. } => {}
+							Publish::AtLeastOnce { id, .. } => {
+								connection.write_packet(&Packet::PubAck { id }).await?;
+							}
+							Publish::ExactlyOnce { id, .. } => {
+								connection.write_packet(&Packet::PubRec { id }).await?;
+							}
+						}
+
+						match from_utf8(publish.payload()) {
+							Ok(payload) => {
+								println!("{payload}");
+							}
+							Err(_) => {
+								//
+							}
+						}
+					}
 					Some(Packet::PubAck { id }) => {
 						let Some(sent) = awaiting_puback.remove(&id) else {
 							tracing::error!("unsolicited PubAck with id {id}");
@@ -144,6 +177,9 @@ async fn client_task<A: ToSocketAddrs + Send>(
 
 						awaiting_pubcomp.insert(id, sent);
 						connection.write_packet(&Packet::PubRel { id }).await?;
+					}
+					Some(Packet::PubRel { id }) => {
+						connection.write_packet(&Packet::PubComp { id }).await?;
 					}
 					Some(Packet::PubComp { id }) => {
 						let Some(sent) = awaiting_pubcomp.remove(&id) else {
