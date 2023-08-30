@@ -1,8 +1,9 @@
 use super::{get_id, get_slice, get_str};
-use crate::QoS;
-use bytes::{Buf, Bytes};
+use crate::{QoS, WriteError};
+use bytes::{Buf, BufMut, Bytes};
 use std::io;
 
+const HEADER: u8 = 0x30;
 const FLAG_RETAIN: u8 = 0x01;
 const FLAG_DUPLICATE: u8 = 0x04;
 const MASK_QOS: u8 = 0x06;
@@ -83,6 +84,54 @@ impl Publish {
 				})
 			}
 		}
+	}
+
+	pub fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), WriteError> {
+		match self {
+			Self::AtMostOnce {
+				retain,
+				topic,
+				payload,
+			} => {
+				let flags = retain.then_some(FLAG_RETAIN).unwrap_or(0);
+				super::put_u8(dst, HEADER | flags)?;
+				super::put_var(dst, 2 + topic.len() + payload.len())?;
+				super::put_str(dst, topic)?;
+				super::put_slice(dst, payload)?;
+			}
+			Self::AtLeastOnce {
+				id,
+				retain,
+				duplicate,
+				topic,
+				payload,
+			} => {
+				let flags = retain.then_some(FLAG_RETAIN).unwrap_or(0)
+					| duplicate.then_some(FLAG_DUPLICATE).unwrap_or(0);
+				super::put_u8(dst, HEADER | flags)?;
+				super::put_var(dst, 4 + topic.len() + payload.len())?;
+				super::put_str(dst, topic)?;
+				super::put_u16(dst, *id)?;
+				super::put_slice(dst, payload)?;
+			}
+			Self::ExactlyOnce {
+				id,
+				retain,
+				duplicate,
+				topic,
+				payload,
+			} => {
+				let flags = retain.then_some(FLAG_RETAIN).unwrap_or(0)
+					| duplicate.then_some(FLAG_DUPLICATE).unwrap_or(0);
+				super::put_u8(dst, HEADER | flags)?;
+				super::put_var(dst, 4 + topic.len() + payload.len())?;
+				super::put_str(dst, topic)?;
+				super::put_u16(dst, *id)?;
+				super::put_slice(dst, payload)?;
+			}
+		}
+
+		Ok(())
 	}
 
 	/// Returns the topic of the Publish packet.

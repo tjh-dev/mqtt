@@ -275,8 +275,41 @@ impl Packet {
 
 	pub fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), WriteError> {
 		match self {
-			Self::Connect(connect) => {
-				connect.serialize_to_bytes(dst)
+			Self::Connect(connect) => connect.serialize_to_bytes(dst),
+			Self::ConnAck {
+				session_present,
+				code,
+			} => {
+				put_u8(dst, 0x20)?;
+				put_var(dst, 2)?;
+				put_u8(dst, if *session_present { 0x01 } else { 0x00 })?;
+				put_u8(dst, *code)?;
+				Ok(())
+			}
+			Self::Publish(publish) => publish.serialize_to_bytes(dst),
+			Self::PubAck { id } => {
+				put_u8(dst, 0x40)?;
+				put_var(dst, 2)?;
+				put_u16(dst, *id)?;
+				Ok(())
+			}
+			Self::PubRec { id } => {
+				put_u8(dst, 0x50)?;
+				put_var(dst, 2)?;
+				put_u16(dst, *id)?;
+				Ok(())
+			}
+			Self::PubRel { id } => {
+				put_u8(dst, 0x62)?;
+				put_var(dst, 2)?;
+				put_u16(dst, *id)?;
+				Ok(())
+			}
+			Self::PubComp { id } => {
+				put_u8(dst, 0x70)?;
+				put_var(dst, 2)?;
+				put_u16(dst, *id)?;
+				Ok(())
 			}
 			Self::Subscribe { id, filters } => {
 				put_u8(dst, 0x82)?;
@@ -294,11 +327,52 @@ impl Packet {
 
 				Ok(())
 			}
+			Self::SubAck { id, result } => {
+				put_u8(dst, 0x90)?;
+
+				let len = 2 + result.len();
+
+				put_var(dst, len)?;
+				put_u16(dst, *id)?;
+				for qos in result {
+					put_u8(dst, qos.map(|qos| qos as u8).unwrap_or(0x80))?;
+				}
+
+				Ok(())
+			}
+			Self::Unsubscribe { id, filters } => {
+				put_u8(dst, 0xa2)?;
+
+				let len = 2 + filters
+					.iter()
+					.fold(0usize, |acc, filter| acc + 2 + filter.len());
+
+				put_var(dst, len)?;
+				put_u16(dst, *id)?;
+				for filter in filters {
+					put_str(dst, filter)?;
+				}
+
+				Ok(())
+			}
+			Self::UnsubAck { id } => {
+				put_u8(dst, 0xb0)?;
+				put_var(dst, 2)?;
+				put_u16(dst, *id)?;
+				Ok(())
+			}
 			Self::PingReq => {
 				put_u16(dst, 0xc000)?;
 				Ok(())
 			}
-			_ => unimplemented!(),
+			Self::PingResp => {
+				put_u16(dst, 0xd000)?;
+				Ok(())
+			}
+			Self::Disconnect => {
+				put_u16(dst, 0xe000)?;
+				Ok(())
+			}
 		}
 	}
 }
