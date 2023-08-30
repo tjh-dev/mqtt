@@ -1,5 +1,5 @@
-use crate::packet::{self, Packet};
 use bytes::{Buf, BytesMut};
+use mqtt_core::Packet;
 use std::io::Cursor;
 use tokio::{
 	io::{AsyncReadExt, AsyncWriteExt, BufWriter},
@@ -21,7 +21,7 @@ impl Connection {
 	}
 
 	/// Read a single [`Packet`] from the underlying stream.
-	pub async fn read_packet(&mut self) -> crate::Result<Option<Packet>> {
+	pub async fn read_packet(&mut self) -> mqtt_core::Result<Option<Packet>> {
 		loop {
 			// Attempt to parse a packet from the buffered data.
 			if let Some(packet) = self.parse_packet()? {
@@ -44,8 +44,8 @@ impl Connection {
 		}
 	}
 
-	pub fn parse_packet(&mut self) -> crate::Result<Option<Packet>> {
-		use packet::Error::Incomplete;
+	pub fn parse_packet(&mut self) -> mqtt_core::Result<Option<Packet>> {
+		use mqtt_core::PacketError::Incomplete;
 
 		let mut buf = Cursor::new(&self.buffer[..]);
 
@@ -65,7 +65,7 @@ impl Connection {
 		}
 	}
 
-	pub async fn write_packet(&mut self, packet: &Packet) -> crate::Result<()> {
+	pub async fn write_packet(&mut self, packet: &Packet) -> mqtt_core::Result<()> {
 		tracing::debug!("sending {packet:?}");
 
 		let mut buf = BytesMut::new();

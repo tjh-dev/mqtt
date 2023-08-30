@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4.4.1", features = ["derive", "env"] }
-mqtt = { version = "*", path = "../lib", features = ["async-client"] }
+mqtt-async = { version = "*", path = "../mqtt-async" }
 tokio = { version = "1.32", features = ["macros", "rt-multi-thread"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3" }

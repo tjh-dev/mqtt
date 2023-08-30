@@ -1,5 +1,8 @@
 use self::connection::Connection;
-use crate::{packet::Packet, QoS};
+use mqtt_core::Packet;
+
+pub use mqtt_core::{Error, QoS, Result};
+
 use std::{collections::HashMap, time::Duration};
 use tokio::{
 	net::{TcpStream, ToSocketAddrs},
@@ -37,7 +40,7 @@ impl Client {
 
 pub fn client<A: ToSocketAddrs + Send + 'static>(
 	addr: A,
-) -> (Client, JoinHandle<crate::Result<()>>) {
+) -> (Client, JoinHandle<mqtt_core::Result<()>>) {
 	let (tx, rx) = mpsc::unbounded_channel();
 	let handle = tokio::spawn(client_task(addr, rx));
 	(Client { tx }, handle)
@@ -46,7 +49,7 @@ pub fn client<A: ToSocketAddrs + Send + 'static>(
 async fn client_task<A: ToSocketAddrs + Send>(
 	addr: A,
 	mut rx: UnboundedReceiver<Command>,
-) -> crate::Result<()> {
+) -> mqtt_core::Result<()> {
 	//
 
 	let stream = TcpStream::connect(addr).await?;

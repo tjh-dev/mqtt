@@ -1,0 +1,12 @@
+[package]
+name = "mqtt-async"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bytes = "1.4.0"
+mqtt-core = { version = "*", path = "../mqtt-core" }
+tokio = { version = "1.32", features = ["net", "io-util", "macros", "sync", "time", "tracing", "rt"] }
+tracing = { version = "0.1" }
