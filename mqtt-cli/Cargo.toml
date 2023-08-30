@@ -1,5 +1,5 @@
 [package]
-name = "cli"
+name = "mqtt-cli"
 version = "0.0.0"
 edition = "2021"
 
@@ -9,3 +9,7 @@ mqtt-async = { version = "*", path = "../mqtt-async" }
 tokio = { version = "1.32", features = ["macros", "rt-multi-thread"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3" }
+
+[[bin]]
+name = "mqtt"
+path = "src/main.rs"
