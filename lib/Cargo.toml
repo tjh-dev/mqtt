@@ -10,5 +10,5 @@ tracing = { version = "0.1", optional = true }
 
 
 [features]
-default = ["tokio", "tracing"]
-tokio = ["dep:tokio", "tracing"]
+default = []
+async-client = ["dep:tokio", "tracing"]
