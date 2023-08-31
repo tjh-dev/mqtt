@@ -10,9 +10,9 @@ pub struct Message {
 	pub payload: Vec<u8>,
 }
 #[derive(Debug)]
-pub enum MessageGuard {
-	RequiresCompletion(Message, u16, CommandTx),
-	NoCompletion(Message),
+pub struct MessageGuard {
+	msg: Option<Message>,
+	sig: Option<(u16, CommandTx)>,
 }
 
 #[derive(Debug)]
@@ -33,28 +33,29 @@ impl Subscription {
 
 	pub async fn recv(&mut self) -> Option<MessageGuard> {
 		match self.rx.recv().await? {
-			mqtt_core::Publish::AtMostOnce { topic, payload, .. } => {
-				Some(MessageGuard::NoCompletion(Message {
+			mqtt_core::Publish::AtMostOnce { topic, payload, .. } => Some(MessageGuard {
+				msg: Some(Message {
 					topic,
 					payload: payload.to_vec(),
-				}))
-			}
-			mqtt_core::Publish::AtLeastOnce { topic, payload, .. } => {
-				Some(MessageGuard::NoCompletion(Message {
+				}),
+				sig: None,
+			}),
+			mqtt_core::Publish::AtLeastOnce { topic, payload, .. } => Some(MessageGuard {
+				msg: Some(Message {
 					topic,
 					payload: payload.to_vec(),
-				}))
-			}
+				}),
+				sig: None,
+			}),
 			mqtt_core::Publish::ExactlyOnce {
 				topic, payload, id, ..
-			} => Some(MessageGuard::RequiresCompletion(
-				Message {
+			} => Some(MessageGuard {
+				msg: Some(Message {
 					topic,
 					payload: payload.to_vec(),
-				},
-				id,
-				self.tx.clone(),
-			)),
+				}),
+				sig: Some((id, self.tx.clone())),
+			}),
 		}
 	}
 
@@ -72,13 +73,23 @@ impl Subscription {
 	}
 }
 
+impl MessageGuard {
+	/// Mark the message as complete and take the contents.
+	///
+	/// For messages published with a Quality of Service of ExactlyOnce, this
+	/// will trigger a PubComp message to be sent to the Server.
+	pub fn complete(mut self) -> Message {
+		if let Some((id, tx)) = self.sig.take() {
+			let _ = tx.send(Command::PublishComplete { id });
+		}
+		self.msg.take().unwrap()
+	}
+}
+
 impl Drop for MessageGuard {
 	fn drop(&mut self) {
-		if let Self::RequiresCompletion(_, id, tx) = self {
-			tracing::trace!(
-				"MessageGuard dropped, sending Command::PublishComplete {{ id: {id} }}"
-			);
-			let _ = tx.send(Command::PublishComplete { id: *id });
+		if let Some((id, tx)) = self.sig.take() {
+			let _ = tx.send(Command::PublishComplete { id });
 		}
 	}
 }
@@ -86,10 +97,7 @@ impl Drop for MessageGuard {
 impl ops::Deref for MessageGuard {
 	type Target = Message;
 	fn deref(&self) -> &Self::Target {
-		match self {
-			Self::NoCompletion(message) => message,
-			Self::RequiresCompletion(message, _, _) => message,
-		}
+		self.msg.as_ref().unwrap()
 	}
 }
 
