@@ -50,18 +50,43 @@ impl IncomingPublishManager {
 
 			let qos = publish.qos();
 			let id = publish.id();
+
+			// Attempt to deliver the Publish packet.
 			let result = channel.try_send(publish);
 
-			match (qos, result, id) {
-				(QoS::AtMostOnce, _, None) => Ok(None),
-				(QoS::AtLeastOnce, Ok(_), Some(id)) => Ok(Some(Packet::PubAck { id })),
-				(QoS::ExactlyOnce, Ok(_), Some(id)) => {
+			match (qos, id, result) {
+				(QoS::AtMostOnce, None, _) => {
+					// We've received the Publish packet, found a suitable destination,
+					// and *tried* to deliver it.
+					Ok(None)
+				}
+				(QoS::AtLeastOnce, Some(id), Ok(_)) => {
+					// We've recevied the Publish packet, found a suitable destination,
+					// and successfully delivered it.
+					//
+					// Send a PubAck.
+					Ok(Some(Packet::PubAck { id }))
+				}
+				(QoS::AtLeastOnce, Some(_), Err(e)) => {
+					tracing::error!("failed to deliver Publish packet, {e:?}");
+					Ok(None)
+				}
+				(QoS::ExactlyOnce, Some(id), Ok(_)) => {
+					// We've recevied the Publish packet, found a suitable destination,
+					// and successfully delivered it.
+					//
+					// Send a PubRec.
 					self.awaiting_pubrel.insert(id);
 					Ok(Some(Packet::PubRec { id }))
 				}
-				_ => panic!(),
+				(QoS::ExactlyOnce, Some(_), Err(e)) => {
+					tracing::error!("failed to deliver Publish packet, {e:?}");
+					Ok(None)
+				}
+				_ => unreachable!(),
 			}
 		} else {
+			tracing::error!("failed to acquire destination for {publish:?}");
 			Ok(None)
 		}
 	}
