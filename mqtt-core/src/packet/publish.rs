@@ -1,6 +1,7 @@
 use super::{get_id, get_slice, get_str};
 use crate::{QoS, WriteError};
 use bytes::{Buf, BufMut, Bytes};
+use core::fmt;
 use std::io;
 
 const HEADER: u8 = 0x30;
@@ -8,7 +9,6 @@ const FLAG_RETAIN: u8 = 0x01;
 const FLAG_DUPLICATE: u8 = 0x04;
 const MASK_QOS: u8 = 0x06;
 
-#[derive(Debug)]
 pub enum Publish {
 	AtMostOnce {
 		retain: bool,
@@ -205,5 +205,17 @@ impl Publish {
 			Self::AtLeastOnce { duplicate, .. } => *duplicate,
 			Self::ExactlyOnce { duplicate, .. } => *duplicate,
 		}
+	}
+}
+
+impl fmt::Debug for Publish {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.debug_struct("Publish")
+			.field("qos", &self.qos())
+			.field("retain", &self.retain())
+			.field("duplicate", &self.duplicate())
+			.field("topic", &self.topic())
+			.field("payload length", &self.payload().len())
+			.finish()
 	}
 }
