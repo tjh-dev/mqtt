@@ -107,7 +107,19 @@ async fn main() -> mqtt_async::Result<()> {
 			};
 
 			let (client, handle) = mqtt_async::client(options);
-			client.subscribe(vec![(topic, QoS::ExactlyOnce)]).await?;
+			let mut subscription = client.subscribe(vec![(topic, QoS::ExactlyOnce)]).await?;
+
+			let mut count = 0;
+			while let Some(message) = subscription.recv().await {
+				count += 1;
+				println!("{message:?}");
+				if count > 2 {
+					break;
+				}
+			}
+
+			drop(subscription);
+			drop(client);
 			handle.await??;
 		}
 		Commands::Pub => {}

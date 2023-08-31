@@ -7,6 +7,9 @@ use tokio::{
 	time::Instant,
 };
 
+mod subscription;
+pub use subscription::Subscription;
+
 #[derive(Debug)]
 pub struct Client {
 	tx: CommandTx,
@@ -34,7 +37,7 @@ impl Client {
 	pub async fn subscribe(
 		&self,
 		filters: Vec<(String, QoS)>,
-	) -> Result<Vec<Option<QoS>>, ClientError> {
+	) -> Result<Subscription, ClientError> {
 		let start = Instant::now();
 
 		let (tx, rx) = oneshot::channel();

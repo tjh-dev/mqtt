@@ -1,29 +1,45 @@
 use crate::{
-	command::{Command, CommandRx},
+	client::Subscription,
+	command::{Command, CommandRx, CommandTx},
 	connection::Connection,
 	Options,
 };
 use mqtt_core::{Connect, Packet, Publish, QoS};
-use std::{collections::HashMap, str::from_utf8};
+use std::{
+	collections::{HashMap, HashSet},
+	str::from_utf8,
+	sync::Arc,
+};
 use tokio::{
 	net::TcpStream,
-	sync::oneshot,
+	sync::{mpsc, oneshot},
 	time::{self, Instant},
 };
 
-#[tracing::instrument(skip(options, rx), ret, err)]
-pub async fn client_task(options: Options, mut rx: CommandRx) -> mqtt_core::Result<()> {
+#[tracing::instrument(skip(options, command_tx, rx), ret, err)]
+pub async fn client_task(
+	options: Options,
+	command_tx: CommandTx,
+	mut rx: CommandRx,
+) -> mqtt_core::Result<()> {
 	//
 
 	let stream = TcpStream::connect((options.host, options.port)).await?;
 	let mut connection = Connection::new(stream);
 	let mut keep_alive = time::interval(time::Duration::from_secs(options.keep_alive as u64));
 
-	let mut awaiting_suback: HashMap<u16, oneshot::Sender<Vec<Option<QoS>>>> = Default::default();
+	let mut awaiting_suback: HashMap<u16, (Arc<Vec<String>>, oneshot::Sender<Subscription>)> =
+		Default::default();
 	let mut awaiting_puback: HashMap<u16, oneshot::Sender<()>> = Default::default();
 	let mut awaiting_pubrec: HashMap<u16, oneshot::Sender<()>> = Default::default();
 	let mut awaiting_pubcomp: HashMap<u16, oneshot::Sender<()>> = Default::default();
 	let mut id = 0;
+
+	let mut awaiting_pubrel: HashSet<u16> = Default::default();
+	let mut awaiting_outgoing_pubcomp: HashSet<u16> = Default::default();
+	let mut queued_pubcomp: HashSet<u16> = Default::default();
+
+	let mut subscriptions: HashMap<String, mpsc::Sender<Publish>> = Default::default();
 
 	connection
 		.write_packet(&Packet::Connect(Connect {
@@ -102,8 +118,26 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> mqtt_core::Resu
 					}
 					Command::Subscribe { filters, tx } => {
 						id += 1;
-						awaiting_suback.insert(id, tx);
-						connection.write_packet(&Packet::Subscribe { id, filters }).await?;
+						let packet = Packet::Subscribe { id, filters };
+						connection.write_packet(&packet).await?;
+
+						let Packet::Subscribe { id, filters } = packet else {
+							panic!();
+						};
+						let just_filters = filters.into_iter().map(|(f, _)| f).collect();
+						awaiting_suback.insert(id, (Arc::new(just_filters), tx));
+					}
+					Command::Unsubscribe { filters, tx } => {
+						//
+						tracing::error!("should unsubscribe {filters:?}");
+					}
+					Command::PublishComplete { id } => {
+						if awaiting_outgoing_pubcomp.remove(&id) {
+							connection.write_packet(&Packet::PubComp { id }).await?;
+						} else {
+							queued_pubcomp.insert(id);
+						}
+						tracing::info!("PubComp sent");
 					}
 					Command::Shutdown => {
 						connection.write_packet(&Packet::Disconnect).await?;
@@ -117,22 +151,27 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> mqtt_core::Resu
 			Ok(packet) = connection.read_packet() => {
 				match packet {
 					Some(Packet::Publish(publish)) => {
-						match publish {
-							Publish::AtMostOnce { .. } => {}
-							Publish::AtLeastOnce { id, .. } => {
-								connection.write_packet(&Packet::PubAck { id }).await?;
-							}
-							Publish::ExactlyOnce { id, .. } => {
-								connection.write_packet(&Packet::PubRec { id }).await?;
-							}
-						}
+						if let Some(channel) = subscriptions.get(publish.topic()) {
 
-						match from_utf8(publish.payload()) {
-							Ok(_) => {
-								// println!("{payload}");
-							}
-							Err(_) => {
-								//
+							tracing::info!("found channel for {}", publish.topic());
+
+							let qos = publish.qos();
+							let id = publish.id();
+							channel.send(publish).await?;
+							match (qos, id) {
+								(QoS::AtMostOnce, None) => {
+									//
+								}
+								(QoS::AtLeastOnce, Some(id)) => {
+									// Send a PubAck
+									connection.write_packet(&Packet::PubAck { id }).await?;
+								}
+								(QoS::ExactlyOnce, Some(id)) => {
+									// Send a PubRec
+									awaiting_pubrel.insert(id);
+									connection.write_packet(&Packet::PubRec { id }).await?;
+								},
+								_ => panic!()
 							}
 						}
 					}
@@ -154,7 +193,16 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> mqtt_core::Resu
 						connection.write_packet(&Packet::PubRel { id }).await?;
 					}
 					Some(Packet::PubRel { id }) => {
-						connection.write_packet(&Packet::PubComp { id }).await?;
+						// Check to see if we're expecting a PubRel.
+						if !awaiting_pubrel.remove(&id) {
+							return Err("unsolicited PubRel".into());
+						}
+
+						if queued_pubcomp.remove(&id) {
+							connection.write_packet(&Packet::PubComp { id }).await?;
+						} else {
+							awaiting_outgoing_pubcomp.insert(id);
+						}
 					}
 					Some(Packet::PubComp { id }) => {
 						let Some(sent) = awaiting_pubcomp.remove(&id) else {
@@ -166,11 +214,17 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> mqtt_core::Resu
 					}
 					Some(Packet::SubAck { id, result }) => {
 						//
-						let Some(tx) = awaiting_suback.remove(&id) else {
+						let Some((filters, response)) = awaiting_suback.remove(&id) else {
 							tracing::error!("unsolicited SubAck with id {id}");
 							break Err("unsolicited SubAck".into())
 						};
-						tx.send(result).unwrap();
+
+						let (publish_tx, publish_rx) = mpsc::channel(32);
+						for filter in filters.iter() {
+							subscriptions.insert(filter.clone(), publish_tx.clone());
+						}
+
+						response.send(Subscription::new(Arc::clone(&filters), publish_rx, command_tx.clone())).unwrap();
 					}
 					Some(Packet::PingResp) => {
 						if let Some(sent) = pingreq_sent.take() {
