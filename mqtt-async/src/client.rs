@@ -1,9 +1,11 @@
-use core::fmt;
-
 use crate::command::Command;
 use bytes::Bytes;
+use core::fmt;
 use mqtt_core::QoS;
-use tokio::sync::{mpsc, oneshot};
+use tokio::{
+	sync::{mpsc, oneshot},
+	time::Instant,
+};
 
 #[derive(Debug)]
 pub struct Client {
@@ -28,26 +30,33 @@ impl Client {
 		Self { tx }
 	}
 
+	#[tracing::instrument(skip(self), ret, err)]
 	pub async fn subscribe(
 		&self,
 		filters: Vec<(String, QoS)>,
 	) -> Result<Vec<Option<QoS>>, ClientError> {
+		let start = Instant::now();
+
 		let (tx, rx) = oneshot::channel();
 		self.tx
 			.send(Command::Subscribe { filters, tx })
 			.map_err(|_| ClientError::Disconnected)?;
 
 		let result = rx.await.map_err(|_| ClientError::Disconnected)?;
+		tracing::debug!("completed in {:?}", start.elapsed());
 		Ok(result)
 	}
 
+	#[tracing::instrument(skip(self), ret, err)]
 	pub async fn publish(
 		&self,
-		topic: impl Into<String>,
-		payload: impl Into<Bytes>,
+		topic: impl Into<String> + fmt::Debug,
+		payload: impl Into<Bytes> + fmt::Debug,
 		qos: QoS,
 		retain: bool,
 	) -> Result<(), ClientError> {
+		let start = Instant::now();
+
 		let (tx, rx) = oneshot::channel();
 		self.tx
 			.send(Command::Publish {
@@ -60,6 +69,7 @@ impl Client {
 			.map_err(|_| ClientError::Disconnected)?;
 
 		rx.await.map_err(|_| ClientError::Disconnected)?;
+		tracing::debug!("completed in {:?}", start.elapsed());
 		Ok(())
 	}
 }

@@ -21,7 +21,7 @@ use tokio::{
 	time,
 };
 
-pub fn client<A: ToSocketAddrs + Send + 'static>(
+pub fn client<A: ToSocketAddrs + Send + Clone + 'static>(
 	addr: A,
 ) -> (client::Client, JoinHandle<mqtt_core::Result<()>>) {
 	let (tx, rx) = mpsc::unbounded_channel();
@@ -30,11 +30,13 @@ pub fn client<A: ToSocketAddrs + Send + 'static>(
 	(client::Client::new(tx), handle)
 }
 
-async fn client_task<A: ToSocketAddrs + Send>(
+async fn client_task<A: ToSocketAddrs + Send + Clone + 'static>(
 	addr: A,
 	mut rx: UnboundedReceiver<command::Command>,
 ) -> mqtt_core::Result<()> {
 	//
+	// store addr for reconnections.
+	let addr = addr.clone();
 
 	let stream = TcpStream::connect(addr).await?;
 	let mut connection = Connection::new(stream);
@@ -153,8 +155,8 @@ async fn client_task<A: ToSocketAddrs + Send>(
 						}
 
 						match from_utf8(publish.payload()) {
-							Ok(payload) => {
-								println!("{payload}");
+							Ok(_) => {
+								// println!("{payload}");
 							}
 							Err(_) => {
 								//

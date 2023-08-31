@@ -21,10 +21,12 @@ impl Connection {
 	}
 
 	/// Read a single [`Packet`] from the underlying stream.
+	#[tracing::instrument(skip(self), err)]
 	pub async fn read_packet(&mut self) -> mqtt_core::Result<Option<Packet>> {
 		loop {
 			// Attempt to parse a packet from the buffered data.
 			if let Some(packet) = self.parse_packet()? {
+				tracing::trace!("incoming {packet:?}");
 				return Ok(Some(packet));
 			}
 
@@ -48,15 +50,12 @@ impl Connection {
 		use mqtt_core::PacketError::Incomplete;
 
 		let mut buf = Cursor::new(&self.buffer[..]);
-
 		match Packet::check(&mut buf) {
 			Ok(_) => {
 				let len = buf.position() as usize;
 				buf.set_position(0);
 
 				let packet = Packet::parse(&mut buf)?;
-				tracing::debug!("received {packet:?}");
-
 				self.buffer.advance(len);
 				Ok(Some(packet))
 			}
@@ -65,16 +64,15 @@ impl Connection {
 		}
 	}
 
+	#[tracing::instrument(skip(self), err)]
 	pub async fn write_packet(&mut self, packet: &Packet) -> mqtt_core::Result<()> {
-		tracing::debug!("sending {packet:?}");
-
 		let mut buf = BytesMut::new();
 		packet.serialize_to_bytes(&mut buf).unwrap();
 
-		// tracing::debug!("sending {:02x?}", &buf[..]);
-
 		self.stream.write_all(&buf).await?;
 		self.stream.flush().await?;
+
+		tracing::trace!("wrote packet to stream");
 		Ok(())
 	}
 }
