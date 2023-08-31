@@ -1,13 +1,11 @@
-use std::sync::Arc;
-
+use crate::client::Subscription;
 use bytes::Bytes;
 use mqtt_core::{FilterBuf, QoS};
+use std::sync::Arc;
 use tokio::sync::{
 	mpsc::{UnboundedReceiver, UnboundedSender},
 	oneshot,
 };
-
-use crate::client::Subscription;
 
 pub type CommandTx = UnboundedSender<Command>;
 pub type CommandRx = UnboundedReceiver<Command>;
