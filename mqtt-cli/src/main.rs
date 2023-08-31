@@ -1,5 +1,7 @@
+use std::process;
+
 use clap::{Parser, Subcommand};
-use mqtt_async::QoS;
+use mqtt_async::{Options, QoS};
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 
 #[derive(Debug, Parser)]
@@ -16,6 +18,9 @@ struct Arguments {
 		env = "MQTT_HOST"
 	)]
 	host: String,
+
+	#[arg(long, short, global = true, default_value = "1883", env = "MQTT_PORT")]
+	port: u16,
 
 	/// ID to use for this client. Defaults to a randomly generated string.
 	#[arg(long, short = 'i', global = true, env = "MQTT_ID")]
@@ -39,6 +44,9 @@ enum Commands {
 		host: String,
 
 		#[arg(from_global)]
+		port: u16,
+
+		#[arg(from_global)]
 		id: Option<String>,
 
 		#[arg(from_global)]
@@ -55,22 +63,50 @@ enum Commands {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> mqtt_async::Result<()> {
+	// Setup tracing
+	//
+	let filter = EnvFilter::builder()
+		.with_default_directive(LevelFilter::ERROR.into())
+		.with_env_var("MQTT_LOG")
+		.try_from_env();
+
 	let subscriber = tracing_subscriber::fmt()
 		.with_target(false)
-		.with_env_filter(
-			EnvFilter::builder()
-				.with_default_directive(LevelFilter::ERROR.into())
-				.with_env_var("MQTT_LOG")
-				.try_from_env()?,
-		)
+		.with_env_filter(filter.unwrap_or_default())
 		.finish();
 
 	tracing::subscriber::set_global_default(subscriber)?;
 
 	let arguments = Arguments::parse();
 	match arguments.command {
-		Commands::Sub { topic, host, .. } => {
-			let (client, handle) = mqtt_async::client((host, 1883));
+		Commands::Sub {
+			topic,
+			host,
+			port,
+			keep_alive,
+			disable_clean_session,
+			id,
+		} => {
+			let options = Options {
+				host,
+				port,
+				keep_alive,
+				clean_session: !disable_clean_session,
+				client_id: id.unwrap_or_else(|| {
+					if disable_clean_session {
+						format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),)
+					} else {
+						format!(
+							"{}/{}:{}",
+							env!("CARGO_PKG_NAME"),
+							env!("CARGO_PKG_VERSION"),
+							process::id()
+						)
+					}
+				}),
+			};
+
+			let (client, handle) = mqtt_async::client(options);
 			client.subscribe(vec![(topic, QoS::ExactlyOnce)]).await?;
 			handle.await??;
 		}

@@ -68,11 +68,12 @@ impl Connection {
 	pub async fn write_packet(&mut self, packet: &Packet) -> mqtt_core::Result<()> {
 		let mut buf = BytesMut::new();
 		packet.serialize_to_bytes(&mut buf).unwrap();
+		tracing::trace!("serialized to {:02x?}", &buf[..]);
 
 		self.stream.write_all(&buf).await?;
 		self.stream.flush().await?;
 
-		tracing::trace!("wrote packet to stream");
+		tracing::debug!("wrote packet to stream");
 		Ok(())
 	}
 }

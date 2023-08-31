@@ -1,6 +1,12 @@
 use bytes::Bytes;
 use mqtt_core::QoS;
-use tokio::sync::oneshot;
+use tokio::sync::{
+	mpsc::{UnboundedReceiver, UnboundedSender},
+	oneshot,
+};
+
+pub type CommandTx = UnboundedSender<Command>;
+pub type CommandRx = UnboundedReceiver<Command>;
 
 #[derive(Debug)]
 pub enum Command {

@@ -1,4 +1,4 @@
-use crate::command::Command;
+use crate::command::{Command, CommandTx};
 use bytes::Bytes;
 use core::fmt;
 use mqtt_core::QoS;
@@ -9,7 +9,7 @@ use tokio::{
 
 #[derive(Debug)]
 pub struct Client {
-	tx: mpsc::UnboundedSender<Command>,
+	tx: CommandTx,
 }
 
 #[derive(Debug)]
