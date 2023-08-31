@@ -3,16 +3,16 @@
 //! A library for interacting with the MQTT protocol.
 //!
 mod filter;
-pub use filter::{Filter, FilterBuf, FilterError};
-
 mod packet;
-pub use packet::{Connect, Error as PacketError, Packet, Publish, WriteError};
-
 mod packet_type;
-pub use packet_type::PacketType;
-
 mod qos;
-pub use qos::QoS;
+
+pub use self::{
+	filter::{Filter, FilterBuf, FilterError},
+	packet::{Connect, Error as PacketError, Packet, Publish, WriteError},
+	packet_type::PacketType,
+	qos::QoS,
+};
 
 pub type PacketId = u16;
 

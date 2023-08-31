@@ -59,12 +59,15 @@ impl Subscription {
 	}
 
 	pub async fn unsubscribe(mut self) -> Result<(), ClientError> {
-		let (tx, rx) = oneshot::channel();
+		let (response_tx, response_rx) = oneshot::channel();
 
 		let filters = self.filters.drain(..).map(|(f, _)| f).collect();
-		self.tx.send(Command::Unsubscribe { filters, response_tx: tx })?;
+		self.tx.send(Command::Unsubscribe {
+			filters,
+			response_tx,
+		})?;
 
-		rx.await?;
+		response_rx.await?;
 		Ok(())
 	}
 }
