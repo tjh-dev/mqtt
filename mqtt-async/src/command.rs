@@ -14,7 +14,7 @@ pub enum Command {
 	Subscribe(SubscribeCommand),
 	Unsubscribe {
 		filters: Vec<FilterBuf>,
-		tx: oneshot::Sender<()>,
+		response_tx: oneshot::Sender<()>,
 	},
 	PublishComplete {
 		id: u16,
@@ -28,7 +28,7 @@ pub struct PublishCommand {
 	pub payload: Bytes,
 	pub qos: QoS,
 	pub retain: bool,
-	pub tx: oneshot::Sender<()>,
+	pub response_tx: oneshot::Sender<()>,
 }
 
 #[derive(Debug)]

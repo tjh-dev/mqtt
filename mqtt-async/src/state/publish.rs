@@ -102,7 +102,7 @@ impl OutgoingPublishManager {
 			payload,
 			qos,
 			retain,
-			tx,
+			response_tx,
 		} = command;
 		let packet = match qos {
 			QoS::AtMostOnce => Packet::Publish(Publish::AtMostOnce {
@@ -126,14 +126,14 @@ impl OutgoingPublishManager {
 			}),
 		};
 
-		let tx = match qos {
-			QoS::AtMostOnce => Some(tx),
+		let response_tx = match qos {
+			QoS::AtMostOnce => Some(response_tx),
 			QoS::AtLeastOnce => {
-				self.awaiting_puback.insert(id, tx);
+				self.awaiting_puback.insert(id, response_tx);
 				None
 			}
 			QoS::ExactlyOnce => {
-				self.awaiting_pubrec.insert(id, tx);
+				self.awaiting_pubrec.insert(id, response_tx);
 				None
 			}
 		};
@@ -141,7 +141,7 @@ impl OutgoingPublishManager {
 		// TODO: Send this AFTER the Publish packet has been successfully written
 		// to the stream.
 		//
-		if let Some(tx) = tx {
+		if let Some(tx) = response_tx {
 			let _ = tx.send(());
 		}
 

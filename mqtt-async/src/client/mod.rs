@@ -79,18 +79,18 @@ impl Client {
 	) -> Result<(), ClientError> {
 		let start = Instant::now();
 
-		let (tx, rx) = oneshot::channel();
+		let (response_tx, response_rx) = oneshot::channel();
 		self.tx
 			.send(Command::Publish(PublishCommand {
 				topic: topic.into(),
 				payload: payload.into(),
 				qos,
 				retain,
-				tx,
+				response_tx,
 			}))
 			.map_err(|_| ClientError::Disconnected)?;
 
-		rx.await.map_err(|_| ClientError::Disconnected)?;
+		response_rx.await.map_err(|_| ClientError::Disconnected)?;
 		tracing::debug!("completed in {:?}", start.elapsed());
 		Ok(())
 	}

@@ -62,7 +62,7 @@ impl Subscription {
 		let (tx, rx) = oneshot::channel();
 
 		let filters = self.filters.drain(..).map(|(f, _)| f).collect();
-		self.tx.send(Command::Unsubscribe { filters, tx })?;
+		self.tx.send(Command::Unsubscribe { filters, response_tx: tx })?;
 
 		rx.await?;
 		Ok(())
@@ -96,7 +96,7 @@ impl Drop for Subscription {
 			let (tx, _) = oneshot::channel();
 			let _ = self.tx.send(Command::Unsubscribe {
 				filters: self.filters.drain(..).map(|(f, _)| f).collect(),
-				tx,
+				response_tx: tx,
 			});
 		}
 	}
