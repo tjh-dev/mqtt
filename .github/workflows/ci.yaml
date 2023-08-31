@@ -1,0 +1,20 @@
+name: Check and Test
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  RUST_FLAGS: -Dwarnings
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check_test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Clippy Check
+      run: cargo clippy --all-targets --all-features
+    - name: Test
+      run: cargo test --verbose
