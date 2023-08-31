@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{ops, sync::Arc};
 
 use crate::command::{Command, CommandTx};
 use tokio::sync::{mpsc::Receiver, oneshot};
@@ -72,6 +72,16 @@ impl Drop for MessageGuard {
 	fn drop(&mut self) {
 		if let Self::RequiresCompletion(_, id, tx) = self {
 			let _ = tx.send(Command::PublishComplete { id: *id });
+		}
+	}
+}
+
+impl ops::Deref for MessageGuard {
+	type Target = Message;
+	fn deref(&self) -> &Self::Target {
+		match self {
+			Self::NoCompletion(message) => message,
+			Self::RequiresCompletion(message, _, _) => message,
 		}
 	}
 }

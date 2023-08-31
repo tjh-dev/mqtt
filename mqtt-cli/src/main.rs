@@ -1,4 +1,4 @@
-use std::process;
+use std::{process, str::from_utf8};
 
 use clap::{Parser, Subcommand};
 use mqtt_async::{Options, QoS};
@@ -112,7 +112,11 @@ async fn main() -> mqtt_async::Result<()> {
 			let mut count = 0;
 			while let Some(message) = subscription.recv().await {
 				count += 1;
-				println!("{message:?}");
+				println!(
+					"{}: {}",
+					message.topic,
+					from_utf8(&message.payload).unwrap_or_default()
+				);
 				if count > 2 {
 					break;
 				}

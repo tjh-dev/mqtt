@@ -38,6 +38,7 @@ impl Connection {
 				// otherwise the peer closed the socket while sending a packet.
 				//
 				if self.buffer.is_empty() {
+					tracing::warn!("buffer empty");
 					return Ok(None);
 				} else {
 					return Err("connection reset by peer".into());
