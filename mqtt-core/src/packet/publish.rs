@@ -6,7 +6,7 @@ use std::io;
 
 const HEADER: u8 = 0x30;
 const FLAG_RETAIN: u8 = 0x01;
-const FLAG_DUPLICATE: u8 = 0x04;
+const FLAG_DUPLICATE: u8 = 0x08;
 const MASK_QOS: u8 = 0x06;
 
 pub enum Publish {
