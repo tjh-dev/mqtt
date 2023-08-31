@@ -1,6 +1,7 @@
 mod client;
 mod command;
 mod connection;
+mod state;
 mod task;
 
 pub use mqtt_core::{Error, Filter, FilterBuf, FilterError, Packet, QoS, Result};

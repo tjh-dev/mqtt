@@ -17,11 +17,7 @@ pub enum Command {
 		retain: bool,
 		tx: oneshot::Sender<()>,
 	},
-	Subscribe {
-		filters: Vec<(FilterBuf, QoS)>,
-		publish_tx: mpsc::Sender<Publish>,
-		result_tx: oneshot::Sender<Vec<Option<QoS>>>,
-	},
+	Subscribe(SubscribeCommand),
 	Unsubscribe {
 		filters: Vec<FilterBuf>,
 		tx: oneshot::Sender<()>,
@@ -30,4 +26,11 @@ pub enum Command {
 		id: u16,
 	},
 	Shutdown,
+}
+
+#[derive(Debug)]
+pub struct SubscribeCommand {
+	pub filters: Vec<(FilterBuf, QoS)>,
+	pub publish_tx: mpsc::Sender<Publish>,
+	pub response_tx: oneshot::Sender<Vec<(FilterBuf, QoS)>>,
 }
