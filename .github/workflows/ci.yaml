@@ -6,7 +6,7 @@ on:
     branches: [ "main" ]
 
 env:
-  RUST_FLAGS: -Dwarnings
+  RUSTFLAGS: -Dwarnings
   CARGO_TERM_COLOR: always
 
 jobs:
