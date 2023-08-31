@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use mqtt_async::QoS;
+use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Parser)]
 struct Arguments {
@@ -52,15 +53,22 @@ enum Commands {
 	Pub,
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> mqtt_async::Result<()> {
-	tracing_subscriber::fmt::init();
+	let subscriber = tracing_subscriber::fmt()
+		// .with_file(true)
+		// .with_line_number(true)
+		.with_target(false)
+		.with_env_filter(EnvFilter::from_default_env())
+		.finish();
+
+	tracing::subscriber::set_global_default(subscriber)?;
 
 	let arguments = Arguments::parse();
 	match arguments.command {
 		Commands::Sub { topic, host, .. } => {
 			let (client, handle) = mqtt_async::client((host, 1883));
-			client.subscribe(vec![(topic, QoS::AtMostOnce)]).await?;
+			client.subscribe(vec![(topic, QoS::ExactlyOnce)]).await?;
 			handle.await??;
 		}
 		Commands::Pub => {}
