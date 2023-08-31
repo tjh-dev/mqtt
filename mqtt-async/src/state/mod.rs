@@ -37,6 +37,7 @@ impl State {
 			Command::Publish(command) => self.outgoing_publish.handle_publish_command(command),
 			Command::PublishComplete { id } => self.incoming_publish.handle_pubcomp_command(id),
 			Command::Subscribe(command) => self.subscriptions.handle_subscribe_command(command),
+			Command::Shutdown => Some(Packet::Disconnect),
 			_ => None,
 		}
 	}
@@ -52,7 +53,7 @@ impl State {
 				.incoming_publish
 				.handle_publish(&self.subscriptions, publish),
 			Packet::PubAck { id } => self.outgoing_publish.handle_puback(id).map(|_| None),
-			Packet::PubRec { id } => self.outgoing_publish.handle_pubrec(id).map(|_| None),
+			Packet::PubRec { id } => self.outgoing_publish.handle_pubrec(id),
 			Packet::PubRel { id } => self.incoming_publish.handle_pubrel(id),
 			Packet::PubComp { id } => self.outgoing_publish.handle_pubcomp(id).map(|_| None),
 			Packet::SubAck { id, result } => {

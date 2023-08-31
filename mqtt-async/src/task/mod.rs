@@ -1,4 +1,9 @@
-use crate::{command::CommandRx, connection::Connection, state::State, Options};
+use crate::{
+	command::{Command, CommandRx},
+	connection::Connection,
+	state::State,
+	Options,
+};
 use mqtt_core::{Connect, Packet};
 use std::time::Duration;
 use tokio::{
@@ -71,6 +76,12 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> mqtt_core::Resu
 			tokio::select! {
 				Some(command) = rx.recv() => {
 					tracing::debug!(?command);
+
+					if let Command::Shutdown = command {
+						connection.write_packet(&Packet::Disconnect).await?;
+						return Ok(())
+					}
+
 					let Some(response) = client_state.process_client_command(command) else {
 						continue
 					};
@@ -102,6 +113,7 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> mqtt_core::Resu
 					}
 				}
 				_ = keep_alive.tick() => {
+					tracing::debug!("{client_state:#?}");
 					pingreq_sent.replace(Instant::now());
 					connection.write_packet(&Packet::PingReq).await?;
 				}

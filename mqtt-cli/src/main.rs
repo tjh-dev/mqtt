@@ -58,7 +58,28 @@ enum Commands {
 		#[clap(default_value = "#")]
 		topic: String,
 	},
-	Pub,
+	Pub {
+		#[arg(from_global)]
+		host: String,
+
+		#[arg(from_global)]
+		port: u16,
+
+		#[arg(from_global)]
+		id: Option<String>,
+
+		#[arg(from_global)]
+		disable_clean_session: bool,
+
+		#[arg(long, short = 'C', default_value = "1")]
+		count: usize,
+
+		#[clap(default_value = "#")]
+		topic: String,
+
+		#[clap(default_value = "#")]
+		payload: String,
+	},
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -124,7 +145,44 @@ async fn main() -> mqtt_async::Result<()> {
 			drop(client);
 			handle.await??;
 		}
-		Commands::Pub => {}
+		Commands::Pub {
+			host,
+			port,
+			id,
+			disable_clean_session,
+			count,
+			topic,
+			payload,
+		} => {
+			let options = Options {
+				host,
+				port,
+				clean_session: !disable_clean_session,
+				client_id: id.unwrap_or_else(|| {
+					if disable_clean_session {
+						format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),)
+					} else {
+						format!(
+							"{}/{}:{}",
+							env!("CARGO_PKG_NAME"),
+							env!("CARGO_PKG_VERSION"),
+							process::id()
+						)
+					}
+				}),
+				..Default::default()
+			};
+
+			let (client, handle) = mqtt_async::client(options);
+			for _ in 0..count {
+				client
+					.publish(&topic, payload.as_bytes().to_vec(), QoS::ExactlyOnce, false)
+					.await?;
+			}
+
+			drop(client);
+			handle.await??;
+		}
 	}
 
 	Ok(())
