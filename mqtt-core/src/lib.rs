@@ -1,0 +1,20 @@
+//! # MQTT
+//!
+//! A library for interacting with the MQTT protocol.
+//!
+mod filter;
+mod packet;
+mod packet_type;
+mod qos;
+
+pub use self::{
+	filter::{Filter, FilterBuf, FilterError},
+	packet::{Connect, Error as PacketError, Packet, Publish, WriteError},
+	packet_type::PacketType,
+	qos::QoS,
+};
+
+pub type PacketId = u16;
+
+pub type Error = Box<dyn std::error::Error + Send + Sync>;
+pub type Result<T> = std::result::Result<T, Error>;
