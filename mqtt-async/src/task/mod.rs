@@ -1,6 +1,5 @@
 use crate::{
-	client::Subscription,
-	command::{Command, CommandRx, CommandTx},
+	command::{Command, CommandRx},
 	connection::Connection,
 	Options,
 };
@@ -18,12 +17,8 @@ use tokio::{
 mod holdoff;
 use self::holdoff::HoldOff;
 
-#[tracing::instrument(skip(options, command_tx, rx), ret, err)]
-pub async fn client_task(
-	options: Options,
-	command_tx: CommandTx,
-	mut rx: CommandRx,
-) -> mqtt_core::Result<()> {
+#[tracing::instrument(skip(options, rx), ret, err)]
+pub async fn client_task(options: Options, mut rx: CommandRx) -> mqtt_core::Result<()> {
 	//
 	// Build the Connect packet.
 	let connect = Packet::Connect(Connect {
@@ -33,8 +28,14 @@ pub async fn client_task(
 		..Default::default()
 	});
 
-	let mut awaiting_suback: HashMap<u16, (Vec<FilterBuf>, oneshot::Sender<Subscription>)> =
-		Default::default();
+	let mut awaiting_suback: HashMap<
+		u16,
+		(
+			Vec<FilterBuf>,
+			mpsc::Sender<Publish>,
+			oneshot::Sender<Vec<Option<QoS>>>,
+		),
+	> = Default::default();
 	let mut awaiting_puback: HashMap<u16, oneshot::Sender<()>> = Default::default();
 	let mut awaiting_pubrec: HashMap<u16, oneshot::Sender<()>> = Default::default();
 	let mut awaiting_pubcomp: HashMap<u16, oneshot::Sender<()>> = Default::default();
@@ -144,7 +145,7 @@ pub async fn client_task(
 								tx.send(()).unwrap();
 							}
 						}
-						Command::Subscribe { filters, tx } => {
+						Command::Subscribe { filters, publish_tx, result_tx } => {
 							id += 1;
 							let packet = Packet::Subscribe { id, filters };
 							connection.write_packet(&packet).await?;
@@ -153,7 +154,7 @@ pub async fn client_task(
 								panic!();
 							};
 							let just_filters = filters.into_iter().map(|(f, _)| f).collect();
-							awaiting_suback.insert(id, (just_filters, tx));
+							awaiting_suback.insert(id, (just_filters, publish_tx, result_tx));
 						}
 						Command::Unsubscribe { filters, .. } => {
 							//
@@ -252,19 +253,18 @@ pub async fn client_task(
 
 							sent.send(()).unwrap();
 						}
-						Some(Packet::SubAck { id, .. }) => {
+						Some(Packet::SubAck { id, result }) => {
 							//
-							let Some((filters, response)) = awaiting_suback.remove(&id) else {
+							let Some((filters, publish_tx, response)) = awaiting_suback.remove(&id) else {
 								tracing::error!("unsolicited SubAck with id {id}");
 								break
 							};
 
-							let (publish_tx, publish_rx) = mpsc::channel(32);
 							for filter in filters.iter() {
 								subscriptions.insert(filter.clone(), publish_tx.clone());
 							}
 
-							response.send(Subscription::new(filters, publish_rx, command_tx.clone())).unwrap();
+							response.send(result).unwrap();
 						}
 						Some(Packet::PingResp) => {
 							if let Some(sent) = pingreq_sent.take() {

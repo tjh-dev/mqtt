@@ -1,6 +1,6 @@
 use super::ClientError;
 use crate::command::{Command, CommandTx};
-use mqtt_core::FilterBuf;
+use mqtt_core::{FilterBuf, QoS};
 use std::ops;
 use tokio::sync::{mpsc::Receiver, oneshot};
 
@@ -19,12 +19,12 @@ pub enum MessageGuard {
 pub struct Subscription {
 	tx: CommandTx,
 	rx: Receiver<mqtt_core::Publish>,
-	filters: Vec<FilterBuf>,
+	filters: Vec<(FilterBuf, QoS)>,
 }
 
 impl Subscription {
 	pub(crate) fn new(
-		filters: Vec<FilterBuf>,
+		filters: Vec<(FilterBuf, QoS)>,
 		rx: Receiver<mqtt_core::Publish>,
 		tx: CommandTx,
 	) -> Self {
@@ -61,7 +61,7 @@ impl Subscription {
 	pub async fn unsubscribe(mut self) -> Result<(), ClientError> {
 		let (tx, rx) = oneshot::channel();
 
-		let filters = self.filters.drain(..).collect();
+		let filters = self.filters.drain(..).map(|(f, _)| f).collect();
 		self.tx.send(Command::Unsubscribe { filters, tx })?;
 
 		rx.await?;
@@ -95,7 +95,7 @@ impl Drop for Subscription {
 		if !self.filters.is_empty() {
 			let (tx, _) = oneshot::channel();
 			let _ = self.tx.send(Command::Unsubscribe {
-				filters: self.filters.drain(..).collect(),
+				filters: self.filters.drain(..).map(|(f, _)| f).collect(),
 				tx,
 			});
 		}

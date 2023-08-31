@@ -42,7 +42,7 @@ impl<H: AsRef<str>> From<(H, u16)> for Options {
 ///
 pub fn client(options: impl Into<Options>) -> (client::Client, JoinHandle<mqtt_core::Result<()>>) {
 	let (tx, rx) = mpsc::unbounded_channel();
-	let handle = tokio::spawn(task::client_task(options.into(), tx.clone(), rx));
+	let handle = tokio::spawn(task::client_task(options.into(), rx));
 
 	(client::Client::new(tx), handle)
 }

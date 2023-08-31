@@ -8,7 +8,7 @@ use tokio::{
 };
 
 mod subscription;
-pub use subscription::Subscription;
+pub use subscription::{Message, Subscription};
 
 #[derive(Debug)]
 pub struct Client {
@@ -52,14 +52,31 @@ impl Client {
 	) -> Result<Subscription, ClientError> {
 		let start = Instant::now();
 
-		let (tx, rx) = oneshot::channel();
+		let (result_tx, result_rx) = oneshot::channel();
+		let (publish_tx, publish_rx) = mpsc::channel(32);
 		self.tx
-			.send(Command::Subscribe { filters, tx })
+			.send(Command::Subscribe {
+				filters: filters.clone(),
+				publish_tx,
+				result_tx,
+			})
 			.map_err(|_| ClientError::Disconnected)?;
 
-		let result = rx.await.map_err(|_| ClientError::Disconnected)?;
+		let result = result_rx.await.map_err(|_| ClientError::Disconnected)?;
+
+		debug_assert_eq!(result.len(), filters.len());
+		let filters = result
+			.into_iter()
+			.zip(filters)
+			.filter_map(|(res, (sub, _))| {
+				let res = res?;
+				Some((sub, res))
+			})
+			.collect();
+		let subscription = Subscription::new(filters, publish_rx, self.tx.clone());
+
 		tracing::debug!("completed in {:?}", start.elapsed());
-		Ok(result)
+		Ok(subscription)
 	}
 
 	#[tracing::instrument(skip(self), ret, err)]
