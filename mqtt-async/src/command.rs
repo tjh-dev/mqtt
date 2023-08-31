@@ -10,13 +10,7 @@ pub type CommandRx = UnboundedReceiver<Command>;
 
 #[derive(Debug)]
 pub enum Command {
-	Publish {
-		topic: String,
-		payload: Bytes,
-		qos: QoS,
-		retain: bool,
-		tx: oneshot::Sender<()>,
-	},
+	Publish(PublishCommand),
 	Subscribe(SubscribeCommand),
 	Unsubscribe {
 		filters: Vec<FilterBuf>,
@@ -26,6 +20,15 @@ pub enum Command {
 		id: u16,
 	},
 	Shutdown,
+}
+
+#[derive(Debug)]
+pub struct PublishCommand {
+	pub topic: String,
+	pub payload: Bytes,
+	pub qos: QoS,
+	pub retain: bool,
+	pub tx: oneshot::Sender<()>,
 }
 
 #[derive(Debug)]

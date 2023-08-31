@@ -1,6 +1,10 @@
+mod publish;
 mod subscriptions;
 
-use self::subscriptions::SubscriptionsManager;
+use self::{
+	publish::{IncomingPublishManager, OutgoingPublishManager},
+	subscriptions::SubscriptionsManager,
+};
 use crate::command::Command;
 use mqtt_core::{Packet, PacketType, Publish};
 use tokio::sync::{mpsc, oneshot};
@@ -13,6 +17,8 @@ type ResponseTx<T> = oneshot::Sender<T>;
 #[derive(Debug, Default)]
 pub struct State {
 	subscriptions: SubscriptionsManager,
+	incoming_publish: IncomingPublishManager,
+	outgoing_publish: OutgoingPublishManager,
 }
 
 #[derive(Debug)]
@@ -28,6 +34,8 @@ pub enum StateError {
 impl State {
 	pub fn process_client_command(&mut self, command: Command) -> Option<Packet> {
 		match command {
+			Command::Publish(command) => self.outgoing_publish.handle_publish_command(command),
+			Command::PublishComplete { id } => self.incoming_publish.handle_pubcomp_command(id),
 			Command::Subscribe(command) => self.subscriptions.handle_subscribe_command(command),
 			_ => None,
 		}
@@ -40,10 +48,17 @@ impl State {
 		packet: Packet,
 	) -> Result<Option<Packet>, StateError> {
 		match packet {
-			Packet::Publish(publish) => self.handle_publish(publish),
+			Packet::Publish(publish) => self
+				.incoming_publish
+				.handle_publish(&self.subscriptions, publish),
+			Packet::PubAck { id } => self.outgoing_publish.handle_puback(id).map(|_| None),
+			Packet::PubRec { id } => self.outgoing_publish.handle_pubrec(id).map(|_| None),
+			Packet::PubRel { id } => self.incoming_publish.handle_pubrel(id),
+			Packet::PubComp { id } => self.outgoing_publish.handle_pubcomp(id).map(|_| None),
 			Packet::SubAck { id, result } => {
 				self.subscriptions.handle_suback(id, result).map(|_| None)
 			}
+			Packet::PingResp => Ok(None),
 			Packet::Connect(_)
 			| Packet::ConnAck { .. }
 			| Packet::Subscribe { .. }
@@ -52,9 +67,5 @@ impl State {
 			| Packet::Disconnect => Err(StateError::InvalidPacket),
 			_ => unimplemented!(),
 		}
-	}
-
-	fn handle_publish(&mut self, publish: Publish) -> Result<Option<Packet>, StateError> {
-		Ok(None)
 	}
 }

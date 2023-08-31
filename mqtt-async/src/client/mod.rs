@@ -1,4 +1,4 @@
-use crate::command::{Command, CommandTx, SubscribeCommand};
+use crate::command::{Command, CommandTx, PublishCommand, SubscribeCommand};
 use bytes::Bytes;
 use core::fmt;
 use mqtt_core::{FilterBuf, QoS};
@@ -81,13 +81,13 @@ impl Client {
 
 		let (tx, rx) = oneshot::channel();
 		self.tx
-			.send(Command::Publish {
+			.send(Command::Publish(PublishCommand {
 				topic: topic.into(),
 				payload: payload.into(),
 				qos,
 				retain,
 				tx,
-			})
+			}))
 			.map_err(|_| ClientError::Disconnected)?;
 
 		rx.await.map_err(|_| ClientError::Disconnected)?;

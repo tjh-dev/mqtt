@@ -105,8 +105,15 @@ impl SubscriptionsManager {
 	}
 
 	/// Finds a channel to publish messages for `topic` to.
-	pub fn find_publish_channel(&self, topic: &str) -> Option<PublishTx> {
-		None
+	pub fn find_publish_channel(&self, topic: &str) -> Option<&PublishTx> {
+		self.subscriptions
+			.iter()
+			.filter_map(|(filter, channel)| {
+				let mat = filter.matches_topic(topic)?;
+				Some((mat.score(), channel))
+			})
+			.max_by_key(|(score, _)| *score)
+			.map(|(_, channel)| channel)
 	}
 
 	/// Generates a new, non-zero packet ID.
