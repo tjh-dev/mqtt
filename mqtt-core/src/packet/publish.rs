@@ -211,6 +211,7 @@ impl Publish {
 impl fmt::Debug for Publish {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		f.debug_struct("Publish")
+			.field("id", &self.id())
 			.field("qos", &self.qos())
 			.field("retain", &self.retain())
 			.field("duplicate", &self.duplicate())
