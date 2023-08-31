@@ -1,10 +1,8 @@
-use std::{ops, sync::Arc};
-
+use super::ClientError;
 use crate::command::{Command, CommandTx};
 use mqtt_core::FilterBuf;
+use std::ops;
 use tokio::sync::{mpsc::Receiver, oneshot};
-
-use super::ClientError;
 
 #[derive(Debug)]
 pub struct Message {
@@ -21,12 +19,12 @@ pub enum MessageGuard {
 pub struct Subscription {
 	tx: CommandTx,
 	rx: Receiver<mqtt_core::Publish>,
-	filters: Arc<Vec<FilterBuf>>,
+	filters: Vec<FilterBuf>,
 }
 
 impl Subscription {
 	pub(crate) fn new(
-		filters: Arc<Vec<FilterBuf>>,
+		filters: Vec<FilterBuf>,
 		rx: Receiver<mqtt_core::Publish>,
 		tx: CommandTx,
 	) -> Self {
@@ -60,12 +58,14 @@ impl Subscription {
 		}
 	}
 
-	pub async fn unsubscribe(self) -> Result<(), ClientError> {
-		// PLAN:
-		// - Send an Unsubscribe Command
-		// - Wait for SubAck.
-		// - Return.
-		unimplemented!()
+	pub async fn unsubscribe(mut self) -> Result<(), ClientError> {
+		let (tx, rx) = oneshot::channel();
+
+		let filters = self.filters.drain(..).collect();
+		self.tx.send(Command::Unsubscribe { filters, tx })?;
+
+		rx.await?;
+		Ok(())
 	}
 }
 
@@ -92,10 +92,12 @@ impl ops::Deref for MessageGuard {
 
 impl Drop for Subscription {
 	fn drop(&mut self) {
-		let (tx, _) = oneshot::channel();
-		let _ = self.tx.send(Command::Unsubscribe {
-			filters: Arc::clone(&self.filters),
-			tx,
-		});
+		if !self.filters.is_empty() {
+			let (tx, _) = oneshot::channel();
+			let _ = self.tx.send(Command::Unsubscribe {
+				filters: self.filters.drain(..).collect(),
+				tx,
+			});
+		}
 	}
 }

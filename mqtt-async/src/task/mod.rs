@@ -7,7 +7,6 @@ use crate::{
 use mqtt_core::{Connect, FilterBuf, Packet, Publish, QoS};
 use std::{
 	collections::{HashMap, HashSet},
-	sync::Arc,
 	time::Duration,
 };
 use tokio::{
@@ -16,9 +15,8 @@ use tokio::{
 	time::{self, Instant},
 };
 
-use self::holdoff::HoldOff;
-
 mod holdoff;
+use self::holdoff::HoldOff;
 
 #[tracing::instrument(skip(options, command_tx, rx), ret, err)]
 pub async fn client_task(
@@ -35,7 +33,7 @@ pub async fn client_task(
 		..Default::default()
 	});
 
-	let mut awaiting_suback: HashMap<u16, (Arc<Vec<FilterBuf>>, oneshot::Sender<Subscription>)> =
+	let mut awaiting_suback: HashMap<u16, (Vec<FilterBuf>, oneshot::Sender<Subscription>)> =
 		Default::default();
 	let mut awaiting_puback: HashMap<u16, oneshot::Sender<()>> = Default::default();
 	let mut awaiting_pubrec: HashMap<u16, oneshot::Sender<()>> = Default::default();
@@ -155,7 +153,7 @@ pub async fn client_task(
 								panic!();
 							};
 							let just_filters = filters.into_iter().map(|(f, _)| f).collect();
-							awaiting_suback.insert(id, (Arc::new(just_filters), tx));
+							awaiting_suback.insert(id, (just_filters, tx));
 						}
 						Command::Unsubscribe { filters, .. } => {
 							//
@@ -266,7 +264,7 @@ pub async fn client_task(
 								subscriptions.insert(filter.clone(), publish_tx.clone());
 							}
 
-							response.send(Subscription::new(Arc::clone(&filters), publish_rx, command_tx.clone())).unwrap();
+							response.send(Subscription::new(filters, publish_rx, command_tx.clone())).unwrap();
 						}
 						Some(Packet::PingResp) => {
 							if let Some(sent) = pingreq_sent.take() {

@@ -26,10 +26,22 @@ impl fmt::Display for ClientError {
 	}
 }
 
+impl<T> From<mpsc::error::SendError<T>> for ClientError {
+	fn from(_: mpsc::error::SendError<T>) -> Self {
+		Self::Disconnected
+	}
+}
+
+impl From<oneshot::error::RecvError> for ClientError {
+	fn from(_: oneshot::error::RecvError) -> Self {
+		Self::Disconnected
+	}
+}
+
 impl std::error::Error for ClientError {}
 
 impl Client {
-	pub(crate) fn new(tx: mpsc::UnboundedSender<Command>) -> Self {
+	pub(crate) fn new(tx: CommandTx) -> Self {
 		Self { tx }
 	}
 
