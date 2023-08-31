@@ -3,7 +3,7 @@ mod command;
 mod connection;
 mod task;
 
-pub use mqtt_core::{Error, Packet, QoS, Result};
+pub use mqtt_core::{Error, Filter, FilterBuf, FilterError, Packet, QoS, Result};
 use tokio::{sync::mpsc, task::JoinHandle};
 
 #[derive(Debug)]

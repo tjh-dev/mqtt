@@ -2,6 +2,9 @@
 //!
 //! A library for interacting with the MQTT protocol.
 //!
+mod filter;
+pub use filter::{Filter, FilterBuf, FilterError};
+
 mod packet;
 pub use packet::{Connect, Error as PacketError, Packet, Publish, WriteError};
 

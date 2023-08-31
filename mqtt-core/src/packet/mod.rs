@@ -1,7 +1,7 @@
 mod connect;
 mod publish;
 
-use crate::{qos::InvalidQoS, QoS};
+use crate::{qos::InvalidQoS, FilterBuf, FilterError, QoS};
 use bytes::{Buf, BufMut};
 use std::{
 	error, fmt, io, mem,
@@ -49,7 +49,7 @@ pub enum Packet {
 	},
 	Subscribe {
 		id: u16,
-		filters: Vec<(String, QoS)>,
+		filters: Vec<(FilterBuf, QoS)>,
 	},
 	SubAck {
 		id: u16,
@@ -71,6 +71,7 @@ pub enum Packet {
 pub enum Error {
 	Incomplete,
 	InvalidQoS,
+	InvalidFilter(FilterError),
 	InvalidHeader,
 	ZeroPacketId,
 	MalformedLength,
@@ -92,6 +93,12 @@ impl From<Utf8Error> for Error {
 impl From<InvalidQoS> for Error {
 	fn from(_: InvalidQoS) -> Self {
 		Self::InvalidQoS
+	}
+}
+
+impl From<FilterError> for Error {
+	fn from(value: FilterError) -> Self {
+		Self::InvalidFilter(value)
 	}
 }
 
@@ -198,7 +205,7 @@ impl Packet {
 				while buf.has_remaining() {
 					let filter = get_str(&mut buf)?;
 					let qos: QoS = get_u8(&mut buf)?.try_into()?;
-					filters.push((String::from(filter), qos));
+					filters.push((FilterBuf::new(filter)?, qos));
 				}
 
 				Ok(Self::Subscribe { id, filters })
@@ -321,7 +328,7 @@ impl Packet {
 				put_var(dst, len)?;
 				put_u16(dst, *id)?;
 				for (filter, qos) in filters {
-					put_str(dst, filter)?;
+					put_str(dst, filter.as_str())?;
 					put_u8(dst, *qos as u8)?;
 				}
 

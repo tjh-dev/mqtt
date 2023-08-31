@@ -1,6 +1,7 @@
 use std::{ops, sync::Arc};
 
 use crate::command::{Command, CommandTx};
+use mqtt_core::FilterBuf;
 use tokio::sync::{mpsc::Receiver, oneshot};
 
 use super::ClientError;
@@ -20,12 +21,12 @@ pub enum MessageGuard {
 pub struct Subscription {
 	tx: CommandTx,
 	rx: Receiver<mqtt_core::Publish>,
-	filters: Arc<Vec<String>>,
+	filters: Arc<Vec<FilterBuf>>,
 }
 
 impl Subscription {
 	pub(crate) fn new(
-		filters: Arc<Vec<String>>,
+		filters: Arc<Vec<FilterBuf>>,
 		rx: Receiver<mqtt_core::Publish>,
 		tx: CommandTx,
 	) -> Self {
@@ -71,6 +72,9 @@ impl Subscription {
 impl Drop for MessageGuard {
 	fn drop(&mut self) {
 		if let Self::RequiresCompletion(_, id, tx) = self {
+			tracing::trace!(
+				"MessageGuard dropped, sending Command::PublishComplete {{ id: {id} }}"
+			);
 			let _ = tx.send(Command::PublishComplete { id: *id });
 		}
 	}

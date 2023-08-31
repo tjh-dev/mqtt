@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
-use mqtt_core::QoS;
+use mqtt_core::{FilterBuf, QoS};
 use tokio::sync::{
 	mpsc::{UnboundedReceiver, UnboundedSender},
 	oneshot,
@@ -22,11 +22,11 @@ pub enum Command {
 		tx: oneshot::Sender<()>,
 	},
 	Subscribe {
-		filters: Vec<(String, QoS)>,
+		filters: Vec<(FilterBuf, QoS)>,
 		tx: oneshot::Sender<Subscription>,
 	},
 	Unsubscribe {
-		filters: Arc<Vec<String>>,
+		filters: Arc<Vec<FilterBuf>>,
 		tx: oneshot::Sender<()>,
 	},
 	PublishComplete {

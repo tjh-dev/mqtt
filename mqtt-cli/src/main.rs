@@ -1,7 +1,7 @@
 use std::{process, str::from_utf8};
 
 use clap::{Parser, Subcommand};
-use mqtt_async::{Options, QoS};
+use mqtt_async::{FilterBuf, Options, QoS};
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 
 #[derive(Debug, Parser)]
@@ -71,6 +71,7 @@ async fn main() -> mqtt_async::Result<()> {
 		.try_from_env();
 
 	let subscriber = tracing_subscriber::fmt()
+		.with_file(true)
 		.with_target(false)
 		.with_env_filter(filter.unwrap_or_default())
 		.finish();
@@ -107,19 +108,16 @@ async fn main() -> mqtt_async::Result<()> {
 			};
 
 			let (client, handle) = mqtt_async::client(options);
-			let mut subscription = client.subscribe(vec![(topic, QoS::ExactlyOnce)]).await?;
+			let mut subscription = client
+				.subscribe(vec![(FilterBuf::new(topic)?, QoS::ExactlyOnce)])
+				.await?;
 
-			let mut count = 0;
 			while let Some(message) = subscription.recv().await {
-				count += 1;
 				println!(
 					"{}: {}",
 					message.topic,
 					from_utf8(&message.payload).unwrap_or_default()
 				);
-				if count > 2 {
-					break;
-				}
 			}
 
 			drop(subscription);

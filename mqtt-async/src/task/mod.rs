@@ -4,7 +4,7 @@ use crate::{
 	connection::Connection,
 	Options,
 };
-use mqtt_core::{Connect, Packet, Publish, QoS};
+use mqtt_core::{Connect, FilterBuf, Packet, Publish, QoS};
 use std::{
 	collections::{HashMap, HashSet},
 	sync::Arc,
@@ -35,7 +35,7 @@ pub async fn client_task(
 		..Default::default()
 	});
 
-	let mut awaiting_suback: HashMap<u16, (Arc<Vec<String>>, oneshot::Sender<Subscription>)> =
+	let mut awaiting_suback: HashMap<u16, (Arc<Vec<FilterBuf>>, oneshot::Sender<Subscription>)> =
 		Default::default();
 	let mut awaiting_puback: HashMap<u16, oneshot::Sender<()>> = Default::default();
 	let mut awaiting_pubrec: HashMap<u16, oneshot::Sender<()>> = Default::default();
@@ -46,7 +46,7 @@ pub async fn client_task(
 	let mut awaiting_outgoing_pubcomp: HashSet<u16> = Default::default();
 	let mut queued_pubcomp: HashSet<u16> = Default::default();
 
-	let mut subscriptions: HashMap<String, mpsc::Sender<Publish>> = Default::default();
+	let mut subscriptions: HashMap<FilterBuf, mpsc::Sender<Publish>> = Default::default();
 
 	let mut holdoff =
 		HoldOff::new(Duration::from_millis(50)..Duration::from_secs(options.keep_alive as u64));
@@ -183,7 +183,17 @@ pub async fn client_task(
 					tracing::trace!(?packet);
 					match packet {
 						Some(Packet::Publish(publish)) => {
-							if let Some(channel) = subscriptions.get(publish.topic()) {
+							// if let Some(channel) = subscriptions.get(publish.topic()) {
+
+							let channel = subscriptions
+								.iter()
+								.filter_map(|(filter, channel)| {
+									let mat = filter.matches_topic(publish.topic())?;
+									Some((mat.score(), channel))
+								})
+								.max_by_key(|(score, _)| *score);
+
+							if let Some((_, channel)) = channel {
 
 								tracing::info!("found channel for {}", publish.topic());
 

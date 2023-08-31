@@ -1,7 +1,7 @@
 use crate::command::{Command, CommandTx};
 use bytes::Bytes;
 use core::fmt;
-use mqtt_core::QoS;
+use mqtt_core::{FilterBuf, QoS};
 use tokio::{
 	sync::{mpsc, oneshot},
 	time::Instant,
@@ -36,7 +36,7 @@ impl Client {
 	#[tracing::instrument(skip(self), ret, err)]
 	pub async fn subscribe(
 		&self,
-		filters: Vec<(String, QoS)>,
+		filters: Vec<(FilterBuf, QoS)>,
 	) -> Result<Subscription, ClientError> {
 		let start = Instant::now();
 
