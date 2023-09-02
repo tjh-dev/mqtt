@@ -9,7 +9,8 @@ use crate::command::Command;
 use mqtt_core::{Packet, PacketType, Publish};
 use tokio::sync::{mpsc, oneshot};
 
-type PublishTx = mpsc::Sender<Publish>;
+pub type PublishTx = mpsc::Sender<Publish>;
+pub type PublishRx = mpsc::Receiver<Publish>;
 type ResponseTx<T> = oneshot::Sender<T>;
 
 /// Mantains Client state after ConnAck has been recevied.

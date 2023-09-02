@@ -1,9 +1,12 @@
 use super::ClientError;
-use crate::command::{Command, CommandTx};
+use crate::{
+	command::{Command, CommandTx},
+	state::PublishRx,
+};
 use bytes::Bytes;
 use mqtt_core::{FilterBuf, QoS};
 use std::ops;
-use tokio::sync::{mpsc::Receiver, oneshot};
+use tokio::sync::oneshot;
 
 #[derive(Debug)]
 pub struct Message {
@@ -19,19 +22,24 @@ pub struct MessageGuard {
 #[derive(Debug)]
 pub struct Subscription {
 	tx: CommandTx,
-	rx: Receiver<mqtt_core::Publish>,
+	rx: PublishRx,
 	filters: Vec<(FilterBuf, QoS)>,
 }
 
 impl Subscription {
-	pub(crate) fn new(
-		filters: Vec<(FilterBuf, QoS)>,
-		rx: Receiver<mqtt_core::Publish>,
-		tx: CommandTx,
-	) -> Self {
+	pub(crate) fn new(filters: Vec<(FilterBuf, QoS)>, rx: PublishRx, tx: CommandTx) -> Self {
 		Self { tx, rx, filters }
 	}
 
+	/// Receive the next message from the Subscription.
+	/// 
+	/// # Example
+	/// ```ignore
+	/// let mut subscription = client.subscribe(("a/b", AtMostOnce)).await?;
+	/// while let Ok(message) = subscription.recv().await {
+	///     println!("{}: {:?}", &message.topic, &message.payload[..]);
+	/// }
+	/// ```
 	pub async fn recv(&mut self) -> Option<MessageGuard> {
 		match self.rx.recv().await? {
 			mqtt_core::Publish::AtMostOnce { topic, payload, .. } => Some(MessageGuard {
@@ -51,9 +59,15 @@ impl Subscription {
 		}
 	}
 
+	/// Unsubscribe all the filters associated with the Subscription.
+	/// 
+	/// This will send an 'Unsubscribe' packet to the broker, and won't return
+	/// until a corresponding 'UnsubAck' packet has been recevied.
 	pub async fn unsubscribe(mut self) -> Result<(), ClientError> {
 		let (response_tx, response_rx) = oneshot::channel();
 
+		// Drain the filters from the Subscription. This will eliminate copying
+		// and prevent the Drop impl from doing anything.
 		let filters = self.filters.drain(..).map(|(f, _)| f).collect();
 		self.tx.send(Command::Unsubscribe {
 			filters,
@@ -62,6 +76,11 @@ impl Subscription {
 
 		response_rx.await?;
 		Ok(())
+	}
+
+	/// Returns a slice of the Filters associated with the Subscription.
+	pub fn filters(&self) -> &[(FilterBuf, QoS)] {
+		&self.filters
 	}
 }
 
