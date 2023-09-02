@@ -1,5 +1,5 @@
 use super::{get_id, get_slice, get_str};
-use crate::{QoS, WriteError};
+use crate::{Packet, QoS, WriteError};
 use bytes::{Buf, BufMut, Bytes};
 use core::fmt;
 use std::io;
@@ -32,13 +32,14 @@ pub enum Publish {
 }
 
 impl Publish {
-	pub fn parse(flags: u8, src: &mut io::Cursor<&[u8]>) -> Result<Self, super::Error> {
+	pub fn parse(payload: &[u8], flags: u8) -> Result<Self, super::Error> {
+		let mut cursor = io::Cursor::new(payload);
 		// Extract properties from the header flags.
 		let retain = flags & FLAG_RETAIN == FLAG_RETAIN;
 		let duplicate = flags & FLAG_DUPLICATE == FLAG_DUPLICATE;
 		let qos: QoS = ((flags & MASK_QOS) >> 1).try_into()?;
 
-		let topic = String::from(get_str(src)?);
+		let topic = String::from(get_str(&mut cursor)?);
 
 		// The interpretation of the remaining bytes depends on the QoS.
 		match qos {
@@ -48,7 +49,8 @@ impl Publish {
 						"duplicate flag must be 0 for Publish packets with QoS of AtMostOnce",
 					));
 				}
-				let payload = get_slice(src, src.remaining())?.to_vec();
+				let remaining = cursor.remaining();
+				let payload = get_slice(&mut cursor, remaining)?.to_vec();
 				let payload = Bytes::from(payload);
 
 				Ok(Self::AtMostOnce {
@@ -58,8 +60,9 @@ impl Publish {
 				})
 			}
 			QoS::AtLeastOnce => {
-				let id = get_id(src)?;
-				let payload = get_slice(src, src.remaining())?.to_vec();
+				let id = get_id(&mut cursor)?;
+				let remaining = cursor.remaining();
+				let payload = get_slice(&mut cursor, remaining)?.to_vec();
 				let payload = Bytes::from(payload);
 
 				Ok(Self::AtLeastOnce {
@@ -71,8 +74,9 @@ impl Publish {
 				})
 			}
 			QoS::ExactlyOnce => {
-				let id = get_id(src)?;
-				let payload = get_slice(src, src.remaining())?.to_vec();
+				let id = get_id(&mut cursor)?;
+				let remaining = cursor.remaining();
+				let payload = get_slice(&mut cursor, remaining)?.to_vec();
 				let payload = Bytes::from(payload);
 
 				Ok(Self::ExactlyOnce {
@@ -205,6 +209,12 @@ impl Publish {
 			Self::AtLeastOnce { duplicate, .. } => *duplicate,
 			Self::ExactlyOnce { duplicate, .. } => *duplicate,
 		}
+	}
+}
+
+impl From<Publish> for Packet {
+	fn from(value: Publish) -> Self {
+		Self::Publish(value)
 	}
 }
 

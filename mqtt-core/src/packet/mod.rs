@@ -109,17 +109,9 @@ impl Packet {
 		let payload = get_slice(src, length)?;
 
 		match (header & 0xf0, header & 0x0f) {
-			(control::CONNECT, 0x00) => {
-				let mut buf = io::Cursor::new(payload);
-				let connect = Connect::parse(&mut buf)?;
-				Ok(Self::Connect(connect))
-			}
+			(control::CONNECT, 0x00) => Ok(Connect::parse(payload)?.into()),
 			(control::CONNACK, 0x00) => Ok(ConnAck::parse(payload)?.into()),
-			(control::PUBLISH, flags) => {
-				let mut buf = io::Cursor::new(payload);
-				let publish = Publish::parse(flags, &mut buf)?;
-				Ok(Self::Publish(publish))
-			}
+			(control::PUBLISH, flags) => Ok(Publish::parse(payload, flags)?.into()),
 			(control::PUBACK, 0x00) => {
 				if length != 2 {
 					return Err(Error::MalformedPacket("PubAck packet must have length 2"));
