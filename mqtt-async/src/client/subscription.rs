@@ -1,5 +1,6 @@
 use super::ClientError;
 use crate::command::{Command, CommandTx};
+use bytes::Bytes;
 use mqtt_core::{FilterBuf, QoS};
 use std::ops;
 use tokio::sync::{mpsc::Receiver, oneshot};
@@ -7,7 +8,7 @@ use tokio::sync::{mpsc::Receiver, oneshot};
 #[derive(Debug)]
 pub struct Message {
 	pub topic: String,
-	pub payload: Vec<u8>,
+	pub payload: Bytes,
 }
 #[derive(Debug)]
 pub struct MessageGuard {
@@ -34,26 +35,17 @@ impl Subscription {
 	pub async fn recv(&mut self) -> Option<MessageGuard> {
 		match self.rx.recv().await? {
 			mqtt_core::Publish::AtMostOnce { topic, payload, .. } => Some(MessageGuard {
-				msg: Some(Message {
-					topic,
-					payload: payload.to_vec(),
-				}),
+				msg: Some(Message { topic, payload }),
 				sig: None,
 			}),
 			mqtt_core::Publish::AtLeastOnce { topic, payload, .. } => Some(MessageGuard {
-				msg: Some(Message {
-					topic,
-					payload: payload.to_vec(),
-				}),
+				msg: Some(Message { topic, payload }),
 				sig: None,
 			}),
 			mqtt_core::Publish::ExactlyOnce {
 				topic, payload, id, ..
 			} => Some(MessageGuard {
-				msg: Some(Message {
-					topic,
-					payload: payload.to_vec(),
-				}),
+				msg: Some(Message { topic, payload }),
 				sig: Some((id, self.tx.clone())),
 			}),
 		}
