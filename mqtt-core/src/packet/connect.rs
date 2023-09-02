@@ -1,4 +1,4 @@
-use super::{get_slice, get_str, get_u16, get_u8};
+use super::{get_slice, get_str, get_u16, get_u8, Error};
 use crate::{Packet, QoS, WriteError};
 use bytes::{BufMut, Bytes};
 use std::{borrow::Cow, io};
@@ -30,6 +30,12 @@ pub struct Will {
 	pub retain: bool,
 }
 
+#[derive(Debug)]
+pub struct ConnAck {
+	pub session_present: bool,
+	pub code: u8,
+}
+
 impl Default for Connect {
 	fn default() -> Self {
 		Self {
@@ -45,12 +51,12 @@ impl Default for Connect {
 }
 
 impl Connect {
-	pub fn parse(payload: &[u8]) -> Result<Self, super::Error> {
+	pub fn parse(payload: &[u8]) -> Result<Self, Error> {
 		let mut cursor = io::Cursor::new(payload);
 		let protocol_name = match get_str(&mut cursor)? {
 			PROTOCOL_NAME => Cow::Borrowed(PROTOCOL_NAME),
 			_ => {
-				return Err(super::Error::MalformedPacket("invalid protocol name"));
+				return Err(Error::MalformedPacket("invalid protocol name"));
 			}
 		};
 
@@ -188,6 +194,51 @@ impl Connect {
 impl From<Connect> for Packet {
 	fn from(value: Connect) -> Self {
 		Self::Connect(value)
+	}
+}
+
+impl ConnAck {
+	/// Parses the payload of a ConnAck packet.
+	pub fn parse(payload: &[u8]) -> Result<Self, Error> {
+		if payload.len() != 2 {
+			return Err(Error::MalformedPacket("ConnAck packet must have length 2"));
+		}
+
+		let mut buf = io::Cursor::new(payload);
+		let flags = super::get_u8(&mut buf)?;
+		let code = super::get_u8(&mut buf)?;
+
+		if flags & 0xe0 != 0 {
+			return Err(Error::MalformedPacket(
+				"upper 7 bits in ConnAck flags must be zero",
+			));
+		}
+
+		let session_present = flags & 0x01 == 0x01;
+
+		Ok(Self {
+			session_present,
+			code,
+		})
+	}
+
+	pub fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), super::WriteError> {
+		let Self {
+			session_present,
+			code,
+		} = self;
+		super::put_u8(dst, 0x20)?;
+		super::put_var(dst, 2)?;
+		super::put_u8(dst, if *session_present { 0x01 } else { 0x00 })?;
+		super::put_u8(dst, *code)?;
+		Ok(())
+	}
+}
+
+impl From<ConnAck> for Packet {
+	#[inline]
+	fn from(value: ConnAck) -> Self {
+		Self::ConnAck(value)
 	}
 }
 

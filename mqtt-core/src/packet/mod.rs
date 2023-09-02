@@ -1,4 +1,3 @@
-mod connack;
 mod connect;
 mod publish;
 mod subscribe;
@@ -10,7 +9,11 @@ use std::{
 	str::{from_utf8, Utf8Error},
 };
 
-pub use self::{connack::ConnAck, connect::Connect, publish::Publish, subscribe::Subscribe};
+pub use self::{
+	connect::{ConnAck, Connect},
+	publish::Publish,
+	subscribe::Subscribe,
+};
 
 mod control {
 	pub const CONNECT: u8 = 0x10;
