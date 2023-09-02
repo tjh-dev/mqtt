@@ -1,5 +1,5 @@
-use super::{get_id, get_slice, get_str};
-use crate::{Packet, QoS, WriteError};
+use super::{get_id, get_slice, get_str, Error, Packet};
+use crate::{PacketId, QoS, WriteError};
 use bytes::{Buf, BufMut, Bytes};
 use core::fmt;
 use std::io;
@@ -32,7 +32,7 @@ pub enum Publish {
 }
 
 impl Publish {
-	pub fn parse(payload: &[u8], flags: u8) -> Result<Self, super::Error> {
+	pub fn parse(payload: &[u8], flags: u8) -> Result<Self, Error> {
 		let mut cursor = io::Cursor::new(payload);
 		// Extract properties from the header flags.
 		let retain = flags & FLAG_RETAIN == FLAG_RETAIN;
@@ -45,7 +45,7 @@ impl Publish {
 		match qos {
 			QoS::AtMostOnce => {
 				if duplicate {
-					return Err(super::Error::MalformedPacket(
+					return Err(Error::MalformedPacket(
 						"duplicate flag must be 0 for Publish packets with QoS of AtMostOnce",
 					));
 				}
@@ -230,3 +230,8 @@ impl fmt::Debug for Publish {
 			.finish()
 	}
 }
+
+super::id_packet!(PubAck, Packet::PubAck, 0x40);
+super::id_packet!(PubRec, Packet::PubRec, 0x50);
+super::id_packet!(PubRel, Packet::PubRel, 0x62);
+super::id_packet!(PubComp, Packet::PubComp, 0x70);

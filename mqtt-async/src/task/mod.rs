@@ -4,7 +4,7 @@ use crate::{
 	state::State,
 	Options,
 };
-use mqtt_core::{ConnAck, Connect, Packet};
+use mqtt_core::{ConnAck, Connect, Disconnect, Packet, PingReq};
 use std::time::Duration;
 use tokio::{
 	io::AsyncRead,
@@ -79,7 +79,7 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> mqtt_core::Resu
 					tracing::debug!(?command);
 
 					if let Command::Shutdown = command {
-						connection.write_packet(&Packet::Disconnect).await?;
+						connection.write_packet(&Disconnect.into()).await?;
 						return Ok(())
 					}
 
@@ -116,7 +116,7 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> mqtt_core::Resu
 				_ = keep_alive.tick() => {
 					tracing::debug!("{client_state:#?}");
 					pingreq_sent.replace(Instant::now());
-					connection.write_packet(&Packet::PingReq).await?;
+					connection.write_packet(&PingReq.into()).await?;
 				}
 				else => {
 					tracing::warn!("ending client task");

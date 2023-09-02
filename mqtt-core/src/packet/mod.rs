@@ -11,8 +11,8 @@ use std::{
 
 pub use self::{
 	connect::{ConnAck, Connect},
-	publish::Publish,
-	subscribe::Subscribe,
+	publish::{PubAck, PubComp, PubRec, PubRel, Publish},
+	subscribe::{Subscribe, UnsubAck},
 };
 
 mod control {
@@ -37,17 +37,17 @@ pub enum Packet {
 	Connect(Connect),
 	ConnAck(ConnAck),
 	Publish(Publish),
-	PubAck { id: u16 },
-	PubRec { id: u16 },
-	PubRel { id: u16 },
-	PubComp { id: u16 },
+	PubAck(PubAck),
+	PubRec(PubRec),
+	PubRel(PubRel),
+	PubComp(PubComp),
 	Subscribe(Subscribe),
 	SubAck { id: u16, result: Vec<Option<QoS>> },
 	Unsubscribe { id: u16, filters: Vec<String> },
-	UnsubAck { id: u16 },
-	PingReq,
-	PingResp,
-	Disconnect,
+	UnsubAck(UnsubAck),
+	PingReq(PingReq),
+	PingResp(PingResp),
+	Disconnect(Disconnect),
 }
 
 #[derive(Debug)]
@@ -115,42 +115,10 @@ impl Packet {
 			(control::CONNECT, 0x00) => Ok(Connect::parse(payload)?.into()),
 			(control::CONNACK, 0x00) => Ok(ConnAck::parse(payload)?.into()),
 			(control::PUBLISH, flags) => Ok(Publish::parse(payload, flags)?.into()),
-			(control::PUBACK, 0x00) => {
-				if length != 2 {
-					return Err(Error::MalformedPacket("PubAck packet must have length 2"));
-				}
-
-				let mut buf = io::Cursor::new(payload);
-				let id = get_id(&mut buf)?;
-				Ok(Self::PubAck { id })
-			}
-			(control::PUBREC, 0x00) => {
-				if length != 2 {
-					return Err(Error::MalformedPacket("PubRec packet must have length 2"));
-				}
-
-				let mut buf = io::Cursor::new(payload);
-				let id = get_id(&mut buf)?;
-				Ok(Self::PubRec { id })
-			}
-			(control::PUBREL, 0x02) => {
-				if length != 2 {
-					return Err(Error::MalformedPacket("PubRel packet must have length 2"));
-				}
-
-				let mut buf = io::Cursor::new(payload);
-				let id = get_id(&mut buf)?;
-				Ok(Self::PubRel { id })
-			}
-			(control::PUBCOMP, 0x00) => {
-				if length != 2 {
-					return Err(Error::MalformedPacket("PubComp packet must have length 2"));
-				}
-
-				let mut buf = io::Cursor::new(payload);
-				let id = get_id(&mut buf)?;
-				Ok(Self::PubComp { id })
-			}
+			(control::PUBACK, 0x00) => Ok(PubAck::parse(payload)?.into()),
+			(control::PUBREC, 0x00) => Ok(PubRec::parse(payload)?.into()),
+			(control::PUBREL, 0x02) => Ok(PubRel::parse(payload)?.into()),
+			(control::PUBCOMP, 0x00) => Ok(PubComp::parse(payload)?.into()),
 			(control::SUBSCRIBE, 0x02) => Ok(Subscribe::parse(payload)?.into()),
 			(control::SUBACK, 0x00) => {
 				let mut buf = io::Cursor::new(payload);
@@ -189,35 +157,10 @@ impl Packet {
 
 				Ok(Self::Unsubscribe { id, filters })
 			}
-			(control::UNSUBACK, 0x00) => {
-				if length != 2 {
-					return Err(Error::MalformedPacket("UnsubAck packet must have length 2"));
-				}
-
-				let mut buf = io::Cursor::new(payload);
-				let id = get_id(&mut buf)?;
-				Ok(Self::UnsubAck { id })
-			}
-			(control::PINGREQ, 0x00) => {
-				if length != 0 {
-					return Err(Error::MalformedPacket("PingReq packet must have length 0"));
-				}
-				Ok(Self::PingReq)
-			}
-			(control::PINGRESP, 0x00) => {
-				if length != 0 {
-					return Err(Error::MalformedPacket("PingResp packet must have length 0"));
-				}
-				Ok(Self::PingResp)
-			}
-			(control::DISCONNECT, 0x00) => {
-				if length != 0 {
-					return Err(Error::MalformedPacket(
-						"Disconnect packet must have length 0",
-					));
-				}
-				Ok(Self::Disconnect)
-			}
+			(control::UNSUBACK, 0x00) => Ok(UnsubAck::parse(payload)?.into()),
+			(control::PINGREQ, 0x00) => Ok(PingReq::parse(payload)?.into()),
+			(control::PINGRESP, 0x00) => Ok(PingResp::parse(payload)?.into()),
+			(control::DISCONNECT, 0x00) => Ok(Disconnect::parse(payload)?.into()),
 			_ => Err(Error::InvalidHeader),
 		}
 	}
@@ -227,30 +170,10 @@ impl Packet {
 			Self::Connect(connect) => connect.serialize_to_bytes(dst),
 			Self::ConnAck(connack) => connack.serialize_to_bytes(dst),
 			Self::Publish(publish) => publish.serialize_to_bytes(dst),
-			Self::PubAck { id } => {
-				put_u8(dst, 0x40)?;
-				put_var(dst, 2)?;
-				put_u16(dst, *id)?;
-				Ok(())
-			}
-			Self::PubRec { id } => {
-				put_u8(dst, 0x50)?;
-				put_var(dst, 2)?;
-				put_u16(dst, *id)?;
-				Ok(())
-			}
-			Self::PubRel { id } => {
-				put_u8(dst, 0x62)?;
-				put_var(dst, 2)?;
-				put_u16(dst, *id)?;
-				Ok(())
-			}
-			Self::PubComp { id } => {
-				put_u8(dst, 0x70)?;
-				put_var(dst, 2)?;
-				put_u16(dst, *id)?;
-				Ok(())
-			}
+			Self::PubAck(puback) => puback.serialize_to_bytes(dst),
+			Self::PubRec(pubrec) => pubrec.serialize_to_bytes(dst),
+			Self::PubRel(pubrel) => pubrel.serialize_to_bytes(dst),
+			Self::PubComp(pubcomp) => pubcomp.serialize_to_bytes(dst),
 			Self::Subscribe(subscribe) => subscribe.serialize_to_bytes(dst),
 			Self::SubAck { id, result } => {
 				put_u8(dst, 0x90)?;
@@ -280,24 +203,10 @@ impl Packet {
 
 				Ok(())
 			}
-			Self::UnsubAck { id } => {
-				put_u8(dst, 0xb0)?;
-				put_var(dst, 2)?;
-				put_u16(dst, *id)?;
-				Ok(())
-			}
-			Self::PingReq => {
-				put_u16(dst, 0xc000)?;
-				Ok(())
-			}
-			Self::PingResp => {
-				put_u16(dst, 0xd000)?;
-				Ok(())
-			}
-			Self::Disconnect => {
-				put_u16(dst, 0xe000)?;
-				Ok(())
-			}
+			Self::UnsubAck(unsuback) => unsuback.serialize_to_bytes(dst),
+			Self::PingReq(pingreq) => pingreq.serialize_to_bytes(dst),
+			Self::PingResp(pingresp) => pingresp.serialize_to_bytes(dst),
+			Self::Disconnect(disconnect) => disconnect.serialize_to_bytes(dst),
 		}
 	}
 }
@@ -425,3 +334,73 @@ fn put_var(dst: &mut impl BufMut, mut value: usize) -> Result<(), WriteError> {
 		}
 	}
 }
+
+macro_rules! id_packet {
+	($name:tt,$variant:expr,$header:literal) => {
+		#[derive(Debug)]
+		pub struct $name {
+			pub id: PacketId,
+		}
+
+		impl $name {
+			pub fn parse(payload: &[u8]) -> Result<Self, Error> {
+				if payload.len() != 2 {
+					return Err(Error::MalformedPacket("packet must have length 2"));
+				}
+
+				let mut buf = io::Cursor::new(payload);
+				let id = super::get_id(&mut buf)?;
+				Ok(Self { id })
+			}
+
+			pub fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), WriteError> {
+				let Self { id } = self;
+				super::put_u8(dst, $header)?;
+				super::put_var(dst, 2)?;
+				super::put_u16(dst, *id)?;
+				Ok(())
+			}
+		}
+
+		impl From<$name> for Packet {
+			fn from(value: $name) -> Packet {
+				$variant(value)
+			}
+		}
+	};
+}
+
+macro_rules! nul_packet {
+	($name:tt,$variant:expr,$header:literal) => {
+		#[derive(Debug)]
+		pub struct $name;
+
+		impl $name {
+			pub fn parse(payload: &[u8]) -> Result<Self, Error> {
+				if payload.len() != 0 {
+					return Err(Error::MalformedPacket("packet must have length 0"));
+				}
+				Ok(Self)
+			}
+
+			pub fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), WriteError> {
+				put_u8(dst, $header)?;
+				put_var(dst, 0)?;
+				Ok(())
+			}
+		}
+
+		impl From<$name> for Packet {
+			fn from(value: $name) -> Packet {
+				$variant(value)
+			}
+		}
+	};
+}
+
+use id_packet;
+use nul_packet;
+
+nul_packet!(PingReq, Packet::PingReq, 0xc0);
+nul_packet!(PingResp, Packet::PingResp, 0xd0);
+nul_packet!(Disconnect, Packet::Disconnect, 0xe0);

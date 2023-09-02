@@ -1,15 +1,15 @@
-use std::io;
-
-use bytes::{Buf, BufMut};
-
-use super::{Error, Packet};
+use super::{Error, Packet, WriteError};
 use crate::{FilterBuf, PacketId, QoS};
+use bytes::{Buf, BufMut};
+use std::io;
 
 #[derive(Debug)]
 pub struct Subscribe {
 	pub id: PacketId,
 	pub filters: Vec<(FilterBuf, QoS)>,
 }
+
+super::id_packet!(UnsubAck, Packet::UnsubAck, 0xb0);
 
 impl Subscribe {
 	/// Parses the payload of a [`Subscribe`] packet.
@@ -27,7 +27,7 @@ impl Subscribe {
 		Ok(Self { id, filters })
 	}
 
-	pub fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), super::WriteError> {
+	pub fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), WriteError> {
 		let Self { id, filters } = self;
 		super::put_u8(dst, 0x82)?;
 
