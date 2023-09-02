@@ -1,27 +1,43 @@
 use bytes::{Buf, BytesMut};
 use mqtt_core::Packet;
 use std::io::Cursor;
-use tokio::{
-	io::{AsyncReadExt, AsyncWriteExt, BufWriter},
-	net::TcpStream,
-};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 #[derive(Debug)]
-pub struct Connection {
-	stream: BufWriter<TcpStream>,
+pub struct Connection<T> {
+	stream: T,
 	buffer: BytesMut,
 }
 
-impl Connection {
-	pub fn new(socket: TcpStream) -> Self {
+impl<T> Connection<T> {
+	pub fn new(stream: T, len: usize) -> Self {
 		Self {
-			stream: BufWriter::new(socket),
-			buffer: BytesMut::with_capacity(8 * 1024),
+			stream,
+			buffer: BytesMut::with_capacity(len),
 		}
 	}
 
+	fn parse_packet(&mut self) -> Result<Option<Packet>, mqtt_core::PacketError> {
+		use mqtt_core::PacketError::Incomplete;
+
+		let mut buf = Cursor::new(&self.buffer[..]);
+		match Packet::check(&mut buf) {
+			Ok(_) => {
+				let len = buf.position() as usize;
+				buf.set_position(0);
+
+				let packet = Packet::parse(&mut buf)?;
+				self.buffer.advance(len);
+				Ok(Some(packet))
+			}
+			Err(Incomplete) => Ok(None),
+			Err(error) => Err(error),
+		}
+	}
+}
+
+impl<T: AsyncRead + Unpin> Connection<T> {
 	/// Read a single [`Packet`] from the underlying stream.
-	#[tracing::instrument(skip(self), err)]
 	pub async fn read_packet(&mut self) -> mqtt_core::Result<Option<Packet>> {
 		loop {
 			// Attempt to parse a packet from the buffered data.
@@ -38,7 +54,6 @@ impl Connection {
 				// otherwise the peer closed the socket while sending a packet.
 				//
 				if self.buffer.is_empty() {
-					tracing::warn!("buffer empty");
 					return Ok(None);
 				} else {
 					return Err("connection reset by peer".into());
@@ -46,26 +61,9 @@ impl Connection {
 			}
 		}
 	}
+}
 
-	pub fn parse_packet(&mut self) -> mqtt_core::Result<Option<Packet>> {
-		use mqtt_core::PacketError::Incomplete;
-
-		let mut buf = Cursor::new(&self.buffer[..]);
-		match Packet::check(&mut buf) {
-			Ok(_) => {
-				let len = buf.position() as usize;
-				buf.set_position(0);
-
-				let packet = Packet::parse(&mut buf)?;
-				self.buffer.advance(len);
-				Ok(Some(packet))
-			}
-			Err(Incomplete) => Ok(None),
-			Err(error) => Err(error.into()),
-		}
-	}
-
-	#[tracing::instrument(skip(self), err)]
+impl<T: AsyncWrite + Unpin> Connection<T> {
 	pub async fn write_packet(&mut self, packet: &Packet) -> mqtt_core::Result<()> {
 		let mut buf = BytesMut::new();
 		packet.serialize_to_bytes(&mut buf).unwrap();

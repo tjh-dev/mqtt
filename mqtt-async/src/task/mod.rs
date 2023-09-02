@@ -4,9 +4,10 @@ use crate::{
 	state::State,
 	Options,
 };
-use mqtt_core::{Connect, Packet};
+use mqtt_core::{ConnAck, Connect, Disconnect, Packet, PingReq};
 use std::time::Duration;
 use tokio::{
+	io::AsyncRead,
 	net::TcpStream,
 	time::{self, Instant},
 };
@@ -43,7 +44,7 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> mqtt_core::Resu
 		let Ok(stream) = TcpStream::connect((options.host.as_str(), options.port)).await else {
 			continue;
 		};
-		let mut connection = Connection::new(stream);
+		let mut connection = Connection::new(stream, 8 * 1024);
 
 		// Send the Connect packet.
 		connection.write_packet(&connect).await?;
@@ -78,7 +79,7 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> mqtt_core::Resu
 					tracing::debug!(?command);
 
 					if let Command::Shutdown = command {
-						connection.write_packet(&Packet::Disconnect).await?;
+						connection.write_packet(&Disconnect.into()).await?;
 						return Ok(())
 					}
 
@@ -115,7 +116,7 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> mqtt_core::Resu
 				_ = keep_alive.tick() => {
 					tracing::debug!("{client_state:#?}");
 					pingreq_sent.replace(Instant::now());
-					connection.write_packet(&Packet::PingReq).await?;
+					connection.write_packet(&PingReq.into()).await?;
 				}
 				else => {
 					tracing::warn!("ending client task");
@@ -131,8 +132,8 @@ enum ConnAckResult {
 	Timeout,
 }
 
-async fn wait_for_connack(
-	connection: &mut Connection,
+async fn wait_for_connack<T: AsyncRead + Unpin>(
+	connection: &mut Connection<T>,
 	timeout: time::Duration,
 ) -> crate::Result<ConnAckResult> {
 	let mut timeout = time::interval_at(Instant::now() + timeout, timeout);
@@ -140,7 +141,7 @@ async fn wait_for_connack(
 		tokio::select! {
 			Ok(packet) = connection.read_packet() => {
 				match packet {
-					Some(Packet::ConnAck { session_present, code }) => {
+					Some(Packet::ConnAck(ConnAck { session_present, code })) => {
 						if code == 0 {
 							break Ok(ConnAckResult::Continue { session_present })
 						} else {

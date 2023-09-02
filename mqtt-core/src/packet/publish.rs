@@ -1,5 +1,5 @@
-use super::{get_id, get_slice, get_str};
-use crate::{QoS, WriteError};
+use super::{get_id, get_slice, get_str, Error, Packet};
+use crate::{PacketId, QoS, WriteError};
 use bytes::{Buf, BufMut, Bytes};
 use core::fmt;
 use std::io;
@@ -32,23 +32,25 @@ pub enum Publish {
 }
 
 impl Publish {
-	pub fn parse(flags: u8, src: &mut io::Cursor<&[u8]>) -> Result<Self, super::Error> {
+	pub fn parse(payload: &[u8], flags: u8) -> Result<Self, Error> {
+		let mut cursor = io::Cursor::new(payload);
 		// Extract properties from the header flags.
 		let retain = flags & FLAG_RETAIN == FLAG_RETAIN;
 		let duplicate = flags & FLAG_DUPLICATE == FLAG_DUPLICATE;
 		let qos: QoS = ((flags & MASK_QOS) >> 1).try_into()?;
 
-		let topic = String::from(get_str(src)?);
+		let topic = String::from(get_str(&mut cursor)?);
 
 		// The interpretation of the remaining bytes depends on the QoS.
 		match qos {
 			QoS::AtMostOnce => {
 				if duplicate {
-					return Err(super::Error::MalformedPacket(
+					return Err(Error::MalformedPacket(
 						"duplicate flag must be 0 for Publish packets with QoS of AtMostOnce",
 					));
 				}
-				let payload = get_slice(src, src.remaining())?.to_vec();
+				let remaining = cursor.remaining();
+				let payload = get_slice(&mut cursor, remaining)?.to_vec();
 				let payload = Bytes::from(payload);
 
 				Ok(Self::AtMostOnce {
@@ -58,8 +60,9 @@ impl Publish {
 				})
 			}
 			QoS::AtLeastOnce => {
-				let id = get_id(src)?;
-				let payload = get_slice(src, src.remaining())?.to_vec();
+				let id = get_id(&mut cursor)?;
+				let remaining = cursor.remaining();
+				let payload = get_slice(&mut cursor, remaining)?.to_vec();
 				let payload = Bytes::from(payload);
 
 				Ok(Self::AtLeastOnce {
@@ -71,8 +74,9 @@ impl Publish {
 				})
 			}
 			QoS::ExactlyOnce => {
-				let id = get_id(src)?;
-				let payload = get_slice(src, src.remaining())?.to_vec();
+				let id = get_id(&mut cursor)?;
+				let remaining = cursor.remaining();
+				let payload = get_slice(&mut cursor, remaining)?.to_vec();
 				let payload = Bytes::from(payload);
 
 				Ok(Self::ExactlyOnce {
@@ -208,6 +212,12 @@ impl Publish {
 	}
 }
 
+impl From<Publish> for Packet {
+	fn from(value: Publish) -> Self {
+		Self::Publish(value)
+	}
+}
+
 impl fmt::Debug for Publish {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		f.debug_struct("Publish")
@@ -220,3 +230,8 @@ impl fmt::Debug for Publish {
 			.finish()
 	}
 }
+
+super::id_packet!(PubAck, Packet::PubAck, 0x40);
+super::id_packet!(PubRec, Packet::PubRec, 0x50);
+super::id_packet!(PubRel, Packet::PubRel, 0x62);
+super::id_packet!(PubComp, Packet::PubComp, 0x70);

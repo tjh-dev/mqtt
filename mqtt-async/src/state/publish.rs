@@ -1,6 +1,6 @@
 use super::{subscriptions::SubscriptionsManager, ResponseTx, StateError};
 use crate::command::PublishCommand;
-use mqtt_core::{Packet, PacketId, PacketType, Publish, QoS};
+use mqtt_core::{Packet, PacketId, PacketType, PubAck, PubComp, PubRec, PubRel, Publish, QoS};
 use std::{
 	collections::{HashMap, HashSet},
 	num::NonZeroU16,
@@ -27,7 +27,7 @@ impl IncomingPublishManager {
 		// See if we've already received a matching PubRel.
 		if self.queued_pubrel.contains(&id) {
 			self.queued_pubrel.remove(&id);
-			Some(Packet::PubComp { id })
+			Some(PubComp { id }.into())
 		} else {
 			// Add to the set of acknowledged PubComps.
 			tracing::info!(
@@ -65,7 +65,7 @@ impl IncomingPublishManager {
 					// and successfully delivered it.
 					//
 					// Send a PubAck.
-					Ok(Some(Packet::PubAck { id }))
+					Ok(Some(PubAck { id }.into()))
 				}
 				(QoS::AtLeastOnce, Some(_), Err(e)) => {
 					tracing::error!("failed to deliver Publish packet, {e:?}");
@@ -77,7 +77,7 @@ impl IncomingPublishManager {
 					//
 					// Send a PubRec.
 					self.awaiting_pubrel.insert(id);
-					Ok(Some(Packet::PubRec { id }))
+					Ok(Some(PubRec { id }.into()))
 				}
 				(QoS::ExactlyOnce, Some(_), Err(e)) => {
 					tracing::error!("failed to deliver Publish packet, {e:?}");
@@ -91,18 +91,18 @@ impl IncomingPublishManager {
 		}
 	}
 
-	pub fn handle_pubrel(&mut self, id: u16) -> Result<Option<Packet>, StateError> {
-		if !self.awaiting_pubrel.remove(&id) {
+	pub fn handle_pubrel(&mut self, pubrel: PubRel) -> Result<Option<Packet>, StateError> {
+		if !self.awaiting_pubrel.remove(&pubrel.id) {
 			return Err(StateError::Unsolicited(PacketType::PubRel));
 		}
 
 		// See if we've already have queued PubComp.
-		if self.queued_pubcomp.contains(&id) {
-			self.queued_pubcomp.remove(&id);
-			Ok(Some(Packet::PubComp { id }))
+		if self.queued_pubcomp.contains(&pubrel.id) {
+			self.queued_pubcomp.remove(&pubrel.id);
+			Ok(Some(PubComp { id: pubrel.id }.into()))
 		} else {
 			// Add to the set of awaiting PubRels.
-			self.queued_pubrel.insert(id);
+			self.queued_pubrel.insert(pubrel.id);
 			Ok(None)
 		}
 	}
@@ -173,32 +173,32 @@ impl OutgoingPublishManager {
 		Some(packet)
 	}
 
-	pub fn handle_puback(&mut self, id: u16) -> Result<(), StateError> {
+	pub fn handle_puback(&mut self, puback: PubAck) -> Result<(), StateError> {
 		let tx = self
 			.awaiting_puback
-			.remove(&id)
+			.remove(&puback.id)
 			.ok_or(StateError::Unsolicited(mqtt_core::PacketType::PubAck))?;
 
 		let _ = tx.send(());
 		Ok(())
 	}
 
-	pub fn handle_pubrec(&mut self, id: u16) -> Result<Option<Packet>, StateError> {
+	pub fn handle_pubrec(&mut self, pubrec: PubRec) -> Result<Option<Packet>, StateError> {
 		let tx = self
 			.awaiting_pubrec
-			.remove(&id)
+			.remove(&pubrec.id)
 			.ok_or(StateError::Unsolicited(mqtt_core::PacketType::PubAck))?;
 
-		self.awaiting_pubcomp.insert(id, tx);
-		Ok(Some(Packet::PubRel { id }))
+		self.awaiting_pubcomp.insert(pubrec.id, tx);
+		Ok(Some(PubRel { id: pubrec.id }.into()))
 	}
 
 	/// The outgoing Publish cycle has been concluded.
 	///
-	pub fn handle_pubcomp(&mut self, id: u16) -> Result<(), StateError> {
+	pub fn handle_pubcomp(&mut self, pubcomp: PubComp) -> Result<(), StateError> {
 		let tx = self
 			.awaiting_pubcomp
-			.remove(&id)
+			.remove(&pubcomp.id)
 			.ok_or(StateError::Unsolicited(mqtt_core::PacketType::PubAck))?;
 
 		let _ = tx.send(());

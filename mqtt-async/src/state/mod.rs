@@ -6,7 +6,7 @@ use self::{
 	subscriptions::SubscriptionsManager,
 };
 use crate::command::Command;
-use mqtt_core::{Packet, PacketType, Publish};
+use mqtt_core::{Disconnect, Packet, PacketType, Publish};
 use tokio::sync::{mpsc, oneshot};
 
 pub type PublishTx = mpsc::Sender<Publish>;
@@ -38,7 +38,7 @@ impl State {
 			Command::Publish(command) => self.outgoing_publish.handle_publish_command(command),
 			Command::PublishComplete { id } => self.incoming_publish.handle_pubcomp_command(id),
 			Command::Subscribe(command) => self.subscriptions.handle_subscribe_command(command),
-			Command::Shutdown => Some(Packet::Disconnect),
+			Command::Shutdown => Some(Disconnect.into()),
 			_ => None,
 		}
 	}
@@ -53,20 +53,18 @@ impl State {
 			Packet::Publish(publish) => self
 				.incoming_publish
 				.handle_publish(&self.subscriptions, publish),
-			Packet::PubAck { id } => self.outgoing_publish.handle_puback(id).map(|_| None),
-			Packet::PubRec { id } => self.outgoing_publish.handle_pubrec(id),
-			Packet::PubRel { id } => self.incoming_publish.handle_pubrel(id),
-			Packet::PubComp { id } => self.outgoing_publish.handle_pubcomp(id).map(|_| None),
-			Packet::SubAck { id, result } => {
-				self.subscriptions.handle_suback(id, result).map(|_| None)
-			}
-			Packet::PingResp => Ok(None),
+			Packet::PubAck(pkt) => self.outgoing_publish.handle_puback(pkt).map(|_| None),
+			Packet::PubRec(pkt) => self.outgoing_publish.handle_pubrec(pkt),
+			Packet::PubRel(pkt) => self.incoming_publish.handle_pubrel(pkt),
+			Packet::PubComp(pkt) => self.outgoing_publish.handle_pubcomp(pkt).map(|_| None),
+			Packet::SubAck(suback) => self.subscriptions.handle_suback(suback).map(|_| None),
+			Packet::PingResp(_) => Ok(None),
 			Packet::Connect(_)
 			| Packet::ConnAck { .. }
 			| Packet::Subscribe { .. }
 			| Packet::Unsubscribe { .. }
-			| Packet::PingReq
-			| Packet::Disconnect => Err(StateError::InvalidPacket),
+			| Packet::PingReq(_)
+			| Packet::Disconnect(_) => Err(StateError::InvalidPacket),
 			_ => unimplemented!(),
 		}
 	}

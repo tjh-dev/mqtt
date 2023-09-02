@@ -1,5 +1,5 @@
-use super::{get_slice, get_str, get_u16, get_u8};
-use crate::{QoS, WriteError};
+use super::{get_slice, get_str, get_u16, get_u8, Error};
+use crate::{Packet, QoS, WriteError};
 use bytes::{BufMut, Bytes};
 use std::{borrow::Cow, io};
 
@@ -30,6 +30,12 @@ pub struct Will {
 	pub retain: bool,
 }
 
+#[derive(Debug)]
+pub struct ConnAck {
+	pub session_present: bool,
+	pub code: u8,
+}
+
 impl Default for Connect {
 	fn default() -> Self {
 		Self {
@@ -45,26 +51,30 @@ impl Default for Connect {
 }
 
 impl Connect {
-	pub fn parse(payload: &mut io::Cursor<&[u8]>) -> Result<Self, super::Error> {
-		let protocol_name = match get_str(payload)? {
+	pub fn parse(payload: &[u8]) -> Result<Self, Error> {
+		let mut cursor = io::Cursor::new(payload);
+		let protocol_name = match get_str(&mut cursor)? {
 			PROTOCOL_NAME => Cow::Borrowed(PROTOCOL_NAME),
 			_ => {
-				return Err(super::Error::MalformedPacket("invalid protocol name"));
+				return Err(Error::MalformedPacket("invalid protocol name"));
 			}
 		};
 
-		let protocol_level = get_u8(payload)?;
-		let flags = get_u8(payload)?;
-		let keep_alive = get_u16(payload)?;
-		let client_id = get_str(payload)?;
+		let protocol_level = get_u8(&mut cursor)?;
+		let flags = get_u8(&mut cursor)?;
+		let keep_alive = get_u16(&mut cursor)?;
+		let client_id = get_str(&mut cursor)?;
 
 		let clean_session = flags & 0x02 == 0x02;
 		let will = if flags & 0x04 == 0x04 {
-			let topic = get_str(payload)?;
-			let len = get_u16(payload)?;
-			let payload = get_slice(payload, len as usize)?.to_vec();
+			let topic = get_str(&mut cursor)?;
+			let len = get_u16(&mut cursor)?;
+
+			// TODO: Can this be borrowed?
+			let payload = get_slice(&mut cursor, len as usize)?.to_vec();
 			let qos = ((flags & 0x18) >> 3).try_into()?;
 			let retain = flags & 0x20 == 0x20;
+
 			Some(Will {
 				topic: String::from(topic),
 				payload: Bytes::from(payload),
@@ -76,9 +86,9 @@ impl Connect {
 		};
 
 		let credentials = if flags & 0x40 == 0x40 {
-			let username = get_str(payload)?;
+			let username = get_str(&mut cursor)?;
 			let password = if flags & 0x80 == 0x80 {
-				Some(get_str(payload)?.to_string())
+				Some(get_str(&mut cursor)?.to_string())
 			} else {
 				None
 			};
@@ -178,6 +188,57 @@ impl Connect {
 		}
 
 		flags
+	}
+}
+
+impl ConnAck {
+	/// Parses the payload of a ConnAck packet.
+	pub fn parse(payload: &[u8]) -> Result<Self, Error> {
+		if payload.len() != 2 {
+			return Err(Error::MalformedPacket("ConnAck packet must have length 2"));
+		}
+
+		let mut cursor = io::Cursor::new(payload);
+		let flags = super::get_u8(&mut cursor)?;
+		let code = super::get_u8(&mut cursor)?;
+
+		if flags & 0xe0 != 0 {
+			return Err(Error::MalformedPacket(
+				"upper 7 bits in ConnAck flags must be zero",
+			));
+		}
+
+		let session_present = flags & 0x01 == 0x01;
+
+		Ok(Self {
+			session_present,
+			code,
+		})
+	}
+
+	pub fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), super::WriteError> {
+		let Self {
+			session_present,
+			code,
+		} = self;
+		super::put_u8(dst, 0x20)?;
+		super::put_var(dst, 2)?;
+		super::put_u8(dst, if *session_present { 0x01 } else { 0x00 })?;
+		super::put_u8(dst, *code)?;
+		Ok(())
+	}
+}
+
+impl From<Connect> for Packet {
+	fn from(value: Connect) -> Self {
+		Self::Connect(value)
+	}
+}
+
+impl From<ConnAck> for Packet {
+	#[inline]
+	fn from(value: ConnAck) -> Self {
+		Self::ConnAck(value)
 	}
 }
 
