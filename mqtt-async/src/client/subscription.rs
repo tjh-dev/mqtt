@@ -32,7 +32,7 @@ impl Subscription {
 	}
 
 	/// Receive the next message from the Subscription.
-	/// 
+	///
 	/// # Example
 	/// ```ignore
 	/// let mut subscription = client.subscribe(("a/b", AtMostOnce)).await?;
@@ -60,7 +60,7 @@ impl Subscription {
 	}
 
 	/// Unsubscribe all the filters associated with the Subscription.
-	/// 
+	///
 	/// This will send an 'Unsubscribe' packet to the broker, and won't return
 	/// until a corresponding 'UnsubAck' packet has been recevied.
 	pub async fn unsubscribe(mut self) -> Result<(), ClientError> {
