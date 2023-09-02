@@ -1,3 +1,4 @@
+mod connack;
 mod connect;
 mod publish;
 
@@ -8,7 +9,7 @@ use std::{
 	str::{from_utf8, Utf8Error},
 };
 
-pub use self::{connect::Connect, publish::Publish};
+pub use self::{connack::ConnAck, connect::Connect, publish::Publish};
 
 mod control {
 	pub const CONNECT: u8 = 0x10;
@@ -30,10 +31,7 @@ mod control {
 #[derive(Debug)]
 pub enum Packet {
 	Connect(Connect),
-	ConnAck {
-		session_present: bool,
-		code: u8,
-	},
+	ConnAck(ConnAck),
 	Publish(Publish),
 	PubAck {
 		id: u16,
@@ -134,28 +132,7 @@ impl Packet {
 				let connect = Connect::parse(&mut buf)?;
 				Ok(Self::Connect(connect))
 			}
-			(control::CONNACK, 0x00) => {
-				if length != 2 {
-					return Err(Error::MalformedPacket("ConnAck packet must have length 2"));
-				}
-
-				let mut buf = io::Cursor::new(payload);
-				let flags = get_u8(&mut buf)?;
-				let code = get_u8(&mut buf)?;
-
-				if flags & 0xe0 != 0 {
-					return Err(Error::MalformedPacket(
-						"upper 7 bits in ConnAck flags must be zero",
-					));
-				}
-
-				let session_present = flags & 0x01 == 0x01;
-
-				Ok(Self::ConnAck {
-					session_present,
-					code,
-				})
-			}
+			(control::CONNACK, 0x00) => Ok(ConnAck::parse(payload)?.into()),
 			(control::PUBLISH, flags) => {
 				let mut buf = io::Cursor::new(payload);
 				let publish = Publish::parse(flags, &mut buf)?;
@@ -283,16 +260,7 @@ impl Packet {
 	pub fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), WriteError> {
 		match self {
 			Self::Connect(connect) => connect.serialize_to_bytes(dst),
-			Self::ConnAck {
-				session_present,
-				code,
-			} => {
-				put_u8(dst, 0x20)?;
-				put_var(dst, 2)?;
-				put_u8(dst, if *session_present { 0x01 } else { 0x00 })?;
-				put_u8(dst, *code)?;
-				Ok(())
-			}
+			Self::ConnAck(connack) => connack.serialize_to_bytes(dst),
 			Self::Publish(publish) => publish.serialize_to_bytes(dst),
 			Self::PubAck { id } => {
 				put_u8(dst, 0x40)?;

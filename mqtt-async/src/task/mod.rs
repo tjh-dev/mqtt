@@ -4,7 +4,7 @@ use crate::{
 	state::State,
 	Options,
 };
-use mqtt_core::{Connect, Packet};
+use mqtt_core::{ConnAck, Connect, Packet};
 use std::time::Duration;
 use tokio::{
 	io::AsyncRead,
@@ -141,7 +141,7 @@ async fn wait_for_connack<T: AsyncRead + Unpin>(
 		tokio::select! {
 			Ok(packet) = connection.read_packet() => {
 				match packet {
-					Some(Packet::ConnAck { session_present, code }) => {
+					Some(Packet::ConnAck(ConnAck { session_present, code })) => {
 						if code == 0 {
 							break Ok(ConnAckResult::Continue { session_present })
 						} else {
