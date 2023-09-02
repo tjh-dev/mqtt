@@ -9,7 +9,7 @@ mod qos;
 
 pub use self::{
 	filter::{Filter, FilterBuf, FilterError},
-	packet::{ConnAck, Connect, Error as PacketError, Packet, Publish, WriteError},
+	packet::{ConnAck, Connect, Error as PacketError, Packet, Publish, Subscribe, WriteError},
 	packet_type::PacketType,
 	qos::QoS,
 };

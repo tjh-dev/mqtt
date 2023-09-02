@@ -1,6 +1,6 @@
 use super::{PacketType, PublishTx, ResponseTx, StateError};
 use crate::command::SubscribeCommand;
-use mqtt_core::{FilterBuf, Packet, PacketId, QoS};
+use mqtt_core::{FilterBuf, Packet, PacketId, QoS, Subscribe};
 use std::{
 	collections::{BTreeMap, HashMap},
 	num::NonZeroU16,
@@ -54,7 +54,7 @@ impl SubscriptionsManager {
 		);
 
 		// Build the Subscribe packet
-		Some(Packet::Subscribe { id, filters })
+		Some(Subscribe { id, filters }.into())
 	}
 
 	pub fn handle_suback(

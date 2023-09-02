@@ -1,15 +1,16 @@
 mod connack;
 mod connect;
 mod publish;
+mod subscribe;
 
-use crate::{qos::InvalidQoS, FilterBuf, FilterError, QoS};
+use crate::{qos::InvalidQoS, FilterError, QoS};
 use bytes::{Buf, BufMut};
 use std::{
 	error, fmt, io, mem,
 	str::{from_utf8, Utf8Error},
 };
 
-pub use self::{connack::ConnAck, connect::Connect, publish::Publish};
+pub use self::{connack::ConnAck, connect::Connect, publish::Publish, subscribe::Subscribe};
 
 mod control {
 	pub const CONNECT: u8 = 0x10;
@@ -33,33 +34,14 @@ pub enum Packet {
 	Connect(Connect),
 	ConnAck(ConnAck),
 	Publish(Publish),
-	PubAck {
-		id: u16,
-	},
-	PubRec {
-		id: u16,
-	},
-	PubRel {
-		id: u16,
-	},
-	PubComp {
-		id: u16,
-	},
-	Subscribe {
-		id: u16,
-		filters: Vec<(FilterBuf, QoS)>,
-	},
-	SubAck {
-		id: u16,
-		result: Vec<Option<QoS>>,
-	},
-	Unsubscribe {
-		id: u16,
-		filters: Vec<String>,
-	},
-	UnsubAck {
-		id: u16,
-	},
+	PubAck { id: u16 },
+	PubRec { id: u16 },
+	PubRel { id: u16 },
+	PubComp { id: u16 },
+	Subscribe(Subscribe),
+	SubAck { id: u16, result: Vec<Option<QoS>> },
+	Unsubscribe { id: u16, filters: Vec<String> },
+	UnsubAck { id: u16 },
 	PingReq,
 	PingResp,
 	Disconnect,
@@ -174,19 +156,7 @@ impl Packet {
 				let id = get_id(&mut buf)?;
 				Ok(Self::PubComp { id })
 			}
-			(control::SUBSCRIBE, 0x02) => {
-				let mut buf = io::Cursor::new(payload);
-				let id = get_id(&mut buf)?;
-
-				let mut filters = Vec::new();
-				while buf.has_remaining() {
-					let filter = get_str(&mut buf)?;
-					let qos: QoS = get_u8(&mut buf)?.try_into()?;
-					filters.push((FilterBuf::new(filter)?, qos));
-				}
-
-				Ok(Self::Subscribe { id, filters })
-			}
+			(control::SUBSCRIBE, 0x02) => Ok(Subscribe::parse(payload)?.into()),
 			(control::SUBACK, 0x00) => {
 				let mut buf = io::Cursor::new(payload);
 				let id = get_id(&mut buf)?;
@@ -286,22 +256,7 @@ impl Packet {
 				put_u16(dst, *id)?;
 				Ok(())
 			}
-			Self::Subscribe { id, filters } => {
-				put_u8(dst, 0x82)?;
-
-				let len = 2 + filters
-					.iter()
-					.fold(0usize, |acc, (filter, _)| acc + 3 + filter.len());
-
-				put_var(dst, len)?;
-				put_u16(dst, *id)?;
-				for (filter, qos) in filters {
-					put_str(dst, filter.as_str())?;
-					put_u8(dst, *qos as u8)?;
-				}
-
-				Ok(())
-			}
+			Self::Subscribe(subscribe) => subscribe.serialize_to_bytes(dst),
 			Self::SubAck { id, result } => {
 				put_u8(dst, 0x90)?;
 
