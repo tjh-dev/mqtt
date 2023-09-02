@@ -7,6 +7,7 @@ use crate::{
 use mqtt_core::{Connect, Packet};
 use std::time::Duration;
 use tokio::{
+	io::AsyncRead,
 	net::TcpStream,
 	time::{self, Instant},
 };
@@ -43,7 +44,7 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> mqtt_core::Resu
 		let Ok(stream) = TcpStream::connect((options.host.as_str(), options.port)).await else {
 			continue;
 		};
-		let mut connection = Connection::new(stream);
+		let mut connection = Connection::new(stream, 8 * 1024);
 
 		// Send the Connect packet.
 		connection.write_packet(&connect).await?;
@@ -131,8 +132,8 @@ enum ConnAckResult {
 	Timeout,
 }
 
-async fn wait_for_connack(
-	connection: &mut Connection,
+async fn wait_for_connack<T: AsyncRead + Unpin>(
+	connection: &mut Connection<T>,
 	timeout: time::Duration,
 ) -> crate::Result<ConnAckResult> {
 	let mut timeout = time::interval_at(Instant::now() + timeout, timeout);
