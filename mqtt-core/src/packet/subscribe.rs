@@ -26,13 +26,13 @@ super::id_packet!(UnsubAck, Packet::UnsubAck, 0xb0);
 impl Subscribe {
 	/// Parses the payload of a [`Subscribe`] packet.
 	pub fn parse(payload: &[u8]) -> Result<Self, Error> {
-		let mut buf = io::Cursor::new(payload);
-		let id = super::get_id(&mut buf)?;
+		let mut cursor = io::Cursor::new(payload);
+		let id = super::get_id(&mut cursor)?;
 
 		let mut filters = Vec::new();
-		while buf.has_remaining() {
-			let filter = super::get_str(&mut buf)?;
-			let qos: QoS = super::get_u8(&mut buf)?.try_into()?;
+		while cursor.has_remaining() {
+			let filter = super::get_str(&mut cursor)?;
+			let qos: QoS = super::get_u8(&mut cursor)?.try_into()?;
 			filters.push((FilterBuf::new(filter)?, qos));
 		}
 
@@ -102,12 +102,12 @@ impl SubAck {
 impl Unsubscribe {
 	/// Parses the payload of a [`Subscribe`] packet.
 	pub fn parse(payload: &[u8]) -> Result<Self, Error> {
-		let mut buf = io::Cursor::new(payload);
-		let id = super::get_id(&mut buf)?;
+		let mut cursor = io::Cursor::new(payload);
+		let id = super::get_id(&mut cursor)?;
 
 		let mut filters = Vec::new();
-		while buf.has_remaining() {
-			let filter = super::get_str(&mut buf)?;
+		while cursor.has_remaining() {
+			let filter = super::get_str(&mut cursor)?;
 			filters.push(String::from(filter));
 		}
 

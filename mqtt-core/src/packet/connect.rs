@@ -191,12 +191,6 @@ impl Connect {
 	}
 }
 
-impl From<Connect> for Packet {
-	fn from(value: Connect) -> Self {
-		Self::Connect(value)
-	}
-}
-
 impl ConnAck {
 	/// Parses the payload of a ConnAck packet.
 	pub fn parse(payload: &[u8]) -> Result<Self, Error> {
@@ -204,9 +198,9 @@ impl ConnAck {
 			return Err(Error::MalformedPacket("ConnAck packet must have length 2"));
 		}
 
-		let mut buf = io::Cursor::new(payload);
-		let flags = super::get_u8(&mut buf)?;
-		let code = super::get_u8(&mut buf)?;
+		let mut cursor = io::Cursor::new(payload);
+		let flags = super::get_u8(&mut cursor)?;
+		let code = super::get_u8(&mut cursor)?;
 
 		if flags & 0xe0 != 0 {
 			return Err(Error::MalformedPacket(
@@ -232,6 +226,12 @@ impl ConnAck {
 		super::put_u8(dst, if *session_present { 0x01 } else { 0x00 })?;
 		super::put_u8(dst, *code)?;
 		Ok(())
+	}
+}
+
+impl From<Connect> for Packet {
+	fn from(value: Connect) -> Self {
+		Self::Connect(value)
 	}
 }
 

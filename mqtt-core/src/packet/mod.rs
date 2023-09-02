@@ -2,17 +2,16 @@ mod connect;
 mod publish;
 mod subscribe;
 
+pub use self::{
+	connect::{ConnAck, Connect},
+	publish::{PubAck, PubComp, PubRec, PubRel, Publish},
+	subscribe::{SubAck, Subscribe, UnsubAck, Unsubscribe},
+};
 use crate::{qos::InvalidQoS, FilterError};
 use bytes::{Buf, BufMut};
 use std::{
 	error, fmt, io, mem,
 	str::{from_utf8, Utf8Error},
-};
-
-pub use self::{
-	connect::{ConnAck, Connect},
-	publish::{PubAck, PubComp, PubRec, PubRel, Publish},
-	subscribe::{SubAck, Subscribe, UnsubAck, Unsubscribe},
 };
 
 mod control {
