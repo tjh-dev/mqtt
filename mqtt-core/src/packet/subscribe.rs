@@ -15,6 +15,12 @@ pub struct SubAck {
 	pub result: Vec<Option<QoS>>,
 }
 
+#[derive(Debug)]
+pub struct Unsubscribe {
+	pub id: PacketId,
+	pub filters: Vec<String>,
+}
+
 super::id_packet!(UnsubAck, Packet::UnsubAck, 0xb0);
 
 impl Subscribe {
@@ -93,6 +99,39 @@ impl SubAck {
 	}
 }
 
+impl Unsubscribe {
+	/// Parses the payload of a [`Subscribe`] packet.
+	pub fn parse(payload: &[u8]) -> Result<Self, Error> {
+		let mut buf = io::Cursor::new(payload);
+		let id = super::get_id(&mut buf)?;
+
+		let mut filters = Vec::new();
+		while buf.has_remaining() {
+			let filter = super::get_str(&mut buf)?;
+			filters.push(String::from(filter));
+		}
+
+		Ok(Self { id, filters })
+	}
+
+	pub fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), WriteError> {
+		let Self { id, filters } = self;
+		super::put_u8(dst, 0xa2)?;
+
+		let len = 2 + filters
+			.iter()
+			.fold(0usize, |acc, filter| acc + 2 + filter.len());
+
+		super::put_var(dst, len)?;
+		super::put_u16(dst, *id)?;
+		for filter in filters {
+			super::put_str(dst, filter)?;
+		}
+
+		Ok(())
+	}
+}
+
 impl From<Subscribe> for Packet {
 	fn from(value: Subscribe) -> Self {
 		Self::Subscribe(value)
@@ -102,5 +141,11 @@ impl From<Subscribe> for Packet {
 impl From<SubAck> for Packet {
 	fn from(value: SubAck) -> Self {
 		Self::SubAck(value)
+	}
+}
+
+impl From<Unsubscribe> for Packet {
+	fn from(value: Unsubscribe) -> Self {
+		Self::Unsubscribe(value)
 	}
 }

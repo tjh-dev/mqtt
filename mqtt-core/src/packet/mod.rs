@@ -12,7 +12,7 @@ use std::{
 pub use self::{
 	connect::{ConnAck, Connect},
 	publish::{PubAck, PubComp, PubRec, PubRel, Publish},
-	subscribe::{SubAck, Subscribe, UnsubAck},
+	subscribe::{SubAck, Subscribe, UnsubAck, Unsubscribe},
 };
 
 mod control {
@@ -43,7 +43,7 @@ pub enum Packet {
 	PubComp(PubComp),
 	Subscribe(Subscribe),
 	SubAck(SubAck),
-	Unsubscribe { id: u16, filters: Vec<String> },
+	Unsubscribe(Unsubscribe),
 	UnsubAck(UnsubAck),
 	PingReq(PingReq),
 	PingResp(PingResp),
@@ -121,18 +121,7 @@ impl Packet {
 			(control::PUBCOMP, 0x00) => Ok(PubComp::parse(payload)?.into()),
 			(control::SUBSCRIBE, 0x02) => Ok(Subscribe::parse(payload)?.into()),
 			(control::SUBACK, 0x00) => Ok(SubAck::parse(payload)?.into()),
-			(control::UNSUBSCRIBE, 0x02) => {
-				let mut buf = io::Cursor::new(payload);
-				let id = get_id(&mut buf)?;
-
-				let mut filters = Vec::new();
-				while buf.has_remaining() {
-					let filter = get_str(&mut buf)?;
-					filters.push(String::from(filter));
-				}
-
-				Ok(Self::Unsubscribe { id, filters })
-			}
+			(control::UNSUBSCRIBE, 0x02) => Ok(Unsubscribe::parse(payload)?.into()),
 			(control::UNSUBACK, 0x00) => Ok(UnsubAck::parse(payload)?.into()),
 			(control::PINGREQ, 0x00) => Ok(PingReq::parse(payload)?.into()),
 			(control::PINGRESP, 0x00) => Ok(PingResp::parse(payload)?.into()),
@@ -152,21 +141,7 @@ impl Packet {
 			Self::PubComp(pubcomp) => pubcomp.serialize_to_bytes(dst),
 			Self::Subscribe(subscribe) => subscribe.serialize_to_bytes(dst),
 			Self::SubAck(suback) => suback.serialize_to_bytes(dst),
-			Self::Unsubscribe { id, filters } => {
-				put_u8(dst, 0xa2)?;
-
-				let len = 2 + filters
-					.iter()
-					.fold(0usize, |acc, filter| acc + 2 + filter.len());
-
-				put_var(dst, len)?;
-				put_u16(dst, *id)?;
-				for filter in filters {
-					put_str(dst, filter)?;
-				}
-
-				Ok(())
-			}
+			Self::Unsubscribe(unsubscribe) => unsubscribe.serialize_to_bytes(dst),
 			Self::UnsubAck(unsuback) => unsuback.serialize_to_bytes(dst),
 			Self::PingReq(pingreq) => pingreq.serialize_to_bytes(dst),
 			Self::PingResp(pingresp) => pingresp.serialize_to_bytes(dst),
