@@ -9,6 +9,12 @@ pub struct Subscribe {
 	pub filters: Vec<(FilterBuf, QoS)>,
 }
 
+#[derive(Debug)]
+pub struct SubAck {
+	pub id: PacketId,
+	pub result: Vec<Option<QoS>>,
+}
+
 super::id_packet!(UnsubAck, Packet::UnsubAck, 0xb0);
 
 impl Subscribe {
@@ -46,8 +52,55 @@ impl Subscribe {
 	}
 }
 
+impl SubAck {
+	pub fn parse(payload: &[u8]) -> Result<Self, Error> {
+		let mut cursor = io::Cursor::new(payload);
+		let id = super::get_id(&mut cursor)?;
+
+		let mut result = Vec::new();
+		while cursor.has_remaining() {
+			let return_code = super::get_u8(&mut cursor)?;
+			let qos: Option<QoS> = match return_code.try_into() {
+				Ok(qos) => Some(qos),
+				Err(_) => {
+					if return_code == 0x80 {
+						None
+					} else {
+						return Err(Error::MalformedPacket("invalid return code in SubAck"));
+					}
+				}
+			};
+
+			result.push(qos);
+		}
+
+		Ok(Self { id, result })
+	}
+
+	pub fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), WriteError> {
+		let Self { id, result } = self;
+		super::put_u8(dst, 0x90)?;
+
+		let len = 2 + result.len();
+
+		super::put_var(dst, len)?;
+		super::put_u16(dst, *id)?;
+		for qos in result {
+			super::put_u8(dst, qos.map(|qos| qos as u8).unwrap_or(0x80))?;
+		}
+
+		Ok(())
+	}
+}
+
 impl From<Subscribe> for Packet {
 	fn from(value: Subscribe) -> Self {
 		Self::Subscribe(value)
+	}
+}
+
+impl From<SubAck> for Packet {
+	fn from(value: SubAck) -> Self {
+		Self::SubAck(value)
 	}
 }

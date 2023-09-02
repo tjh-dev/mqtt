@@ -2,7 +2,7 @@ mod connect;
 mod publish;
 mod subscribe;
 
-use crate::{qos::InvalidQoS, FilterError, QoS};
+use crate::{qos::InvalidQoS, FilterError};
 use bytes::{Buf, BufMut};
 use std::{
 	error, fmt, io, mem,
@@ -12,7 +12,7 @@ use std::{
 pub use self::{
 	connect::{ConnAck, Connect},
 	publish::{PubAck, PubComp, PubRec, PubRel, Publish},
-	subscribe::{Subscribe, UnsubAck},
+	subscribe::{SubAck, Subscribe, UnsubAck},
 };
 
 mod control {
@@ -42,7 +42,7 @@ pub enum Packet {
 	PubRel(PubRel),
 	PubComp(PubComp),
 	Subscribe(Subscribe),
-	SubAck { id: u16, result: Vec<Option<QoS>> },
+	SubAck(SubAck),
 	Unsubscribe { id: u16, filters: Vec<String> },
 	UnsubAck(UnsubAck),
 	PingReq(PingReq),
@@ -120,31 +120,7 @@ impl Packet {
 			(control::PUBREL, 0x02) => Ok(PubRel::parse(payload)?.into()),
 			(control::PUBCOMP, 0x00) => Ok(PubComp::parse(payload)?.into()),
 			(control::SUBSCRIBE, 0x02) => Ok(Subscribe::parse(payload)?.into()),
-			(control::SUBACK, 0x00) => {
-				let mut buf = io::Cursor::new(payload);
-				let id = get_id(&mut buf)?;
-
-				let mut result = Vec::new();
-				while buf.has_remaining() {
-					let return_code = get_u8(&mut buf)?;
-					let qos: Option<QoS> = match return_code.try_into() {
-						Ok(qos) => Some(qos),
-						Err(InvalidQoS) => {
-							if return_code == 0x80 {
-								None
-							} else {
-								return Err(Error::MalformedPacket(
-									"invalid return code in SubAck",
-								));
-							}
-						}
-					};
-
-					result.push(qos);
-				}
-
-				Ok(Self::SubAck { id, result })
-			}
+			(control::SUBACK, 0x00) => Ok(SubAck::parse(payload)?.into()),
 			(control::UNSUBSCRIBE, 0x02) => {
 				let mut buf = io::Cursor::new(payload);
 				let id = get_id(&mut buf)?;
@@ -175,19 +151,7 @@ impl Packet {
 			Self::PubRel(pubrel) => pubrel.serialize_to_bytes(dst),
 			Self::PubComp(pubcomp) => pubcomp.serialize_to_bytes(dst),
 			Self::Subscribe(subscribe) => subscribe.serialize_to_bytes(dst),
-			Self::SubAck { id, result } => {
-				put_u8(dst, 0x90)?;
-
-				let len = 2 + result.len();
-
-				put_var(dst, len)?;
-				put_u16(dst, *id)?;
-				for qos in result {
-					put_u8(dst, qos.map(|qos| qos as u8).unwrap_or(0x80))?;
-				}
-
-				Ok(())
-			}
+			Self::SubAck(suback) => suback.serialize_to_bytes(dst),
 			Self::Unsubscribe { id, filters } => {
 				put_u8(dst, 0xa2)?;
 

@@ -57,9 +57,7 @@ impl State {
 			Packet::PubRec(pkt) => self.outgoing_publish.handle_pubrec(pkt),
 			Packet::PubRel(pkt) => self.incoming_publish.handle_pubrel(pkt),
 			Packet::PubComp(pkt) => self.outgoing_publish.handle_pubcomp(pkt).map(|_| None),
-			Packet::SubAck { id, result } => {
-				self.subscriptions.handle_suback(id, result).map(|_| None)
-			}
+			Packet::SubAck(suback) => self.subscriptions.handle_suback(suback).map(|_| None),
 			Packet::PingResp(_) => Ok(None),
 			Packet::Connect(_)
 			| Packet::ConnAck { .. }

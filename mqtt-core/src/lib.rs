@@ -11,7 +11,7 @@ pub use self::{
 	filter::{Filter, FilterBuf, FilterError},
 	packet::{
 		ConnAck, Connect, Disconnect, Error as PacketError, Packet, PingReq, PingResp, PubAck,
-		PubComp, PubRec, PubRel, Publish, Subscribe, UnsubAck, WriteError,
+		PubComp, PubRec, PubRel, Publish, SubAck, Subscribe, UnsubAck, WriteError,
 	},
 	packet_type::PacketType,
 	qos::QoS,

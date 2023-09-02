@@ -1,6 +1,6 @@
 use super::{PacketType, PublishTx, ResponseTx, StateError};
 use crate::command::SubscribeCommand;
-use mqtt_core::{FilterBuf, Packet, PacketId, QoS, Subscribe};
+use mqtt_core::{FilterBuf, Packet, PacketId, QoS, SubAck, Subscribe};
 use std::{
 	collections::{BTreeMap, HashMap},
 	num::NonZeroU16,
@@ -57,11 +57,8 @@ impl SubscriptionsManager {
 		Some(Subscribe { id, filters }.into())
 	}
 
-	pub fn handle_suback(
-		&mut self,
-		id: PacketId,
-		result: Vec<Option<QoS>>,
-	) -> Result<(), StateError> {
+	pub fn handle_suback(&mut self, suback: SubAck) -> Result<(), StateError> {
+		let SubAck { id, result } = suback;
 		// Ascertain that we have an active subscription request for the SubAck
 		// packet ID.
 		//
