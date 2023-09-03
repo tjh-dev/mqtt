@@ -58,13 +58,13 @@ impl State {
 			Packet::PubRel(pkt) => self.incoming_publish.handle_pubrel(pkt),
 			Packet::PubComp(pkt) => self.outgoing_publish.handle_pubcomp(pkt).map(|_| None),
 			Packet::SubAck(suback) => self.subscriptions.handle_suback(suback).map(|_| None),
-			Packet::PingResp(_) => Ok(None),
+			Packet::PingResp => Ok(None),
 			Packet::Connect(_)
 			| Packet::ConnAck { .. }
 			| Packet::Subscribe { .. }
 			| Packet::Unsubscribe { .. }
-			| Packet::PingReq(_)
-			| Packet::Disconnect(_) => Err(StateError::InvalidPacket),
+			| Packet::PingReq
+			| Packet::Disconnect => Err(StateError::InvalidPacket),
 			_ => unimplemented!(),
 		}
 	}

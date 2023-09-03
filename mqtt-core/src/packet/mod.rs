@@ -44,9 +44,9 @@ pub enum Packet {
 	SubAck(SubAck),
 	Unsubscribe(Unsubscribe),
 	UnsubAck(UnsubAck),
-	PingReq(PingReq),
-	PingResp(PingResp),
-	Disconnect(Disconnect),
+	PingReq,
+	PingResp,
+	Disconnect,
 }
 
 #[derive(Debug)]
@@ -142,9 +142,9 @@ impl Packet {
 			Self::SubAck(suback) => suback.serialize_to_bytes(dst),
 			Self::Unsubscribe(unsubscribe) => unsubscribe.serialize_to_bytes(dst),
 			Self::UnsubAck(unsuback) => unsuback.serialize_to_bytes(dst),
-			Self::PingReq(pingreq) => pingreq.serialize_to_bytes(dst),
-			Self::PingResp(pingresp) => pingresp.serialize_to_bytes(dst),
-			Self::Disconnect(disconnect) => disconnect.serialize_to_bytes(dst),
+			Self::PingReq => PingReq.serialize_to_bytes(dst),
+			Self::PingResp => PingResp.serialize_to_bytes(dst),
+			Self::Disconnect => Disconnect.serialize_to_bytes(dst),
 		}
 	}
 }
@@ -329,8 +329,8 @@ macro_rules! nul_packet {
 		}
 
 		impl From<$name> for Packet {
-			fn from(value: $name) -> Packet {
-				$variant(value)
+			fn from(_: $name) -> Packet {
+				$variant
 			}
 		}
 	};
