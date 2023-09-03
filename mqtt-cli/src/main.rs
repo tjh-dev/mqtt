@@ -1,8 +1,100 @@
-use std::{process, str::from_utf8};
-
 use clap::{Parser, Subcommand};
 use mqtt_async::{FilterBuf, Options, QoS};
+use std::{process, str::from_utf8};
+use tracing::subscriber::SetGlobalDefaultError;
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> mqtt_async::Result<()> {
+	setup_tracing()?;
+
+	let arguments = Arguments::parse();
+	let Arguments {
+		command,
+		host,
+		port,
+		id,
+		keep_alive,
+		disable_clean_session,
+	} = arguments;
+
+	let options = Options {
+		host,
+		port,
+		keep_alive,
+		clean_session: !disable_clean_session,
+		client_id: id.unwrap_or_else(|| build_client_id(!disable_clean_session)),
+	};
+
+	// Create the MQTT client.
+	let (client, handle) = mqtt_async::client(options);
+
+	match command {
+		Commands::Sub { topic, .. } => {
+			// Create a subscription to the provided topic
+			let mut subscription = client
+				.subscribe(vec![(FilterBuf::new(topic)?, QoS::ExactlyOnce)])
+				.await?;
+
+			// Receive messages ... forever.
+			while let Some(message) = subscription.recv().await {
+				println!(
+					"{}: {}",
+					message.topic,
+					from_utf8(&message.payload).unwrap_or_default()
+				);
+			}
+
+			// Dropping the subscription will cause the topic to be unsubscribed.
+			drop(subscription);
+		}
+		Commands::Pub {
+			count,
+			topic,
+			payload,
+			..
+		} => {
+			for _ in 0..count {
+				client
+					.publish(&topic, payload.as_bytes().to_vec(), QoS::ExactlyOnce, false)
+					.await?;
+			}
+		}
+	}
+
+	drop(client);
+	handle.await??;
+
+	Ok(())
+}
+
+fn setup_tracing() -> Result<(), SetGlobalDefaultError> {
+	let filter = EnvFilter::builder()
+		.with_default_directive(LevelFilter::ERROR.into())
+		.with_env_var("MQTT_LOG")
+		.try_from_env();
+
+	let subscriber = tracing_subscriber::fmt()
+		.with_file(true)
+		.with_target(false)
+		.with_env_filter(filter.unwrap_or_default())
+		.finish();
+
+	tracing::subscriber::set_global_default(subscriber)
+}
+
+fn build_client_id(clean_session: bool) -> String {
+	if !clean_session {
+		format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),)
+	} else {
+		format!(
+			"{}/{}:{}",
+			env!("CARGO_PKG_NAME"),
+			env!("CARGO_PKG_VERSION"),
+			process::id()
+		)
+	}
+}
 
 #[derive(Debug, Parser)]
 struct Arguments {
@@ -22,7 +114,7 @@ struct Arguments {
 	#[arg(long, short, global = true, default_value = "1883", env = "MQTT_PORT")]
 	port: u16,
 
-	/// ID to use for this client. Defaults to a randomly generated string.
+	/// ID to use for this client.
 	#[arg(long, short = 'i', global = true, env = "MQTT_ID")]
 	id: Option<String>,
 
@@ -30,8 +122,7 @@ struct Arguments {
 	#[arg(short = 'k', global = true, default_value = "60")]
 	keep_alive: u16,
 
-	/// Disable clean session to enable persistent sessions. Ignored if client ID
-	/// is not specified.
+	/// Disable clean session to enable persistent sessions.
 	#[arg(short = 'c', global = true)]
 	disable_clean_session: bool,
 }
@@ -80,110 +171,4 @@ enum Commands {
 		#[clap(default_value = "#")]
 		payload: String,
 	},
-}
-
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> mqtt_async::Result<()> {
-	// Setup tracing
-	//
-	let filter = EnvFilter::builder()
-		.with_default_directive(LevelFilter::ERROR.into())
-		.with_env_var("MQTT_LOG")
-		.try_from_env();
-
-	let subscriber = tracing_subscriber::fmt()
-		.with_file(true)
-		.with_target(false)
-		.with_env_filter(filter.unwrap_or_default())
-		.finish();
-
-	tracing::subscriber::set_global_default(subscriber)?;
-
-	let arguments = Arguments::parse();
-	match arguments.command {
-		Commands::Sub {
-			topic,
-			host,
-			port,
-			keep_alive,
-			disable_clean_session,
-			id,
-		} => {
-			let options = Options {
-				host,
-				port,
-				keep_alive,
-				clean_session: !disable_clean_session,
-				client_id: id.unwrap_or_else(|| {
-					if disable_clean_session {
-						format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),)
-					} else {
-						format!(
-							"{}/{}:{}",
-							env!("CARGO_PKG_NAME"),
-							env!("CARGO_PKG_VERSION"),
-							process::id()
-						)
-					}
-				}),
-			};
-
-			let (client, handle) = mqtt_async::client(options);
-			let mut subscription = client
-				.subscribe(vec![(FilterBuf::new(topic)?, QoS::ExactlyOnce)])
-				.await?;
-
-			while let Some(message) = subscription.recv().await {
-				println!(
-					"{}: {}",
-					message.topic,
-					from_utf8(&message.payload).unwrap_or_default()
-				);
-			}
-
-			drop(subscription);
-			drop(client);
-			handle.await??;
-		}
-		Commands::Pub {
-			host,
-			port,
-			id,
-			disable_clean_session,
-			count,
-			topic,
-			payload,
-		} => {
-			let options = Options {
-				host,
-				port,
-				clean_session: !disable_clean_session,
-				client_id: id.unwrap_or_else(|| {
-					if disable_clean_session {
-						format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),)
-					} else {
-						format!(
-							"{}/{}:{}",
-							env!("CARGO_PKG_NAME"),
-							env!("CARGO_PKG_VERSION"),
-							process::id()
-						)
-					}
-				}),
-				..Default::default()
-			};
-
-			let (client, handle) = mqtt_async::client(options);
-			for _ in 0..count {
-				client
-					.publish(&topic, payload.as_bytes().to_vec(), QoS::ExactlyOnce, false)
-					.await?;
-			}
-
-			drop(client);
-			handle.await??;
-		}
-	}
-
-	Ok(())
 }
