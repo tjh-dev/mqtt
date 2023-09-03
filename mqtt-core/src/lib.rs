@@ -10,8 +10,8 @@ mod qos;
 pub use self::{
 	filter::{Filter, FilterBuf, FilterError},
 	packet::{
-		ConnAck, Connect, Disconnect, Error as PacketError, Packet, PingReq, PingResp, PubAck,
-		PubComp, PubRec, PubRel, Publish, SubAck, Subscribe, UnsubAck, WriteError,
+		ConnAck, Connect, Credentials, Disconnect, Error as PacketError, Packet, PingReq, PingResp,
+		PubAck, PubComp, PubRec, PubRel, Publish, SubAck, Subscribe, UnsubAck, Will, WriteError,
 	},
 	packet_type::PacketType,
 	qos::QoS,

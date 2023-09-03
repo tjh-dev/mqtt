@@ -21,12 +21,13 @@ const HOLDOFF_MIN: Duration = Duration::from_millis(50);
 pub async fn client_task(options: Options, mut rx: CommandRx) -> mqtt_core::Result<()> {
 	//
 	// Build the Connect packet.
-	let connect = Packet::Connect(Connect {
+	let connect = Connect {
 		client_id: options.client_id.clone(),
 		keep_alive: options.keep_alive,
 		clean_session: options.clean_session,
 		..Default::default()
-	});
+	}
+	.into();
 
 	let keep_alive_duration = Duration::from_secs(options.keep_alive as u64);
 

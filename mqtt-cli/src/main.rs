@@ -25,6 +25,7 @@ async fn main() -> mqtt_async::Result<()> {
 		keep_alive,
 		clean_session: !disable_clean_session,
 		client_id: id.unwrap_or_else(|| build_client_id(!disable_clean_session)),
+		..Default::default()
 	};
 
 	// Create the MQTT client.

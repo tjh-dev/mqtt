@@ -4,6 +4,7 @@ mod connection;
 mod state;
 mod task;
 
+use mqtt_core::{Credentials, Will};
 pub use mqtt_core::{Error, Filter, FilterBuf, FilterError, Packet, QoS, Result};
 use tokio::{sync::mpsc, task::JoinHandle};
 
@@ -14,6 +15,8 @@ pub struct Options {
 	pub keep_alive: u16,
 	pub clean_session: bool,
 	pub client_id: String,
+	pub credentials: Option<Credentials>,
+	pub will: Option<Will>,
 }
 
 impl Default for Options {
@@ -24,6 +27,8 @@ impl Default for Options {
 			keep_alive: 60,
 			clean_session: true,
 			client_id: Default::default(),
+			credentials: Default::default(),
+			will: Default::default(),
 		}
 	}
 }

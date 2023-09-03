@@ -3,7 +3,7 @@ mod publish;
 mod subscribe;
 
 pub use self::{
-	connect::{ConnAck, Connect},
+	connect::{ConnAck, Connect, Credentials, Will},
 	publish::{PubAck, PubComp, PubRec, PubRel, Publish},
 	subscribe::{SubAck, Subscribe, UnsubAck, Unsubscribe},
 };
