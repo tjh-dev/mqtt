@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use mqtt_async::{FilterBuf, Options, QoS};
 use std::{process, str::from_utf8};
 use tracing::subscriber::SetGlobalDefaultError;
@@ -16,6 +16,7 @@ async fn main() -> mqtt_async::Result<()> {
 		id,
 		keep_alive,
 		disable_clean_session,
+		qos,
 	} = arguments;
 
 	let options = Options {
@@ -33,7 +34,7 @@ async fn main() -> mqtt_async::Result<()> {
 		Commands::Sub { topic, .. } => {
 			// Create a subscription to the provided topic
 			let mut subscription = client
-				.subscribe(vec![(FilterBuf::new(topic)?, QoS::ExactlyOnce)])
+				.subscribe(vec![(FilterBuf::new(topic)?, qos.into())])
 				.await?;
 
 			// Receive messages ... forever.
@@ -56,7 +57,7 @@ async fn main() -> mqtt_async::Result<()> {
 		} => {
 			for _ in 0..count {
 				client
-					.publish(&topic, payload.as_bytes().to_vec(), QoS::ExactlyOnce, false)
+					.publish(&topic, payload.as_bytes().to_vec(), qos.into(), false)
 					.await?;
 			}
 		}
@@ -125,6 +126,9 @@ struct Arguments {
 	/// Disable clean session to enable persistent sessions.
 	#[arg(short = 'c', global = true)]
 	disable_clean_session: bool,
+
+	#[arg(long, value_enum, default_value = "qos0", rename_all = "lower")]
+	qos: InputQoS,
 }
 
 #[derive(Debug, Subcommand)]
@@ -165,10 +169,26 @@ enum Commands {
 		#[arg(long, short = 'C', default_value = "1")]
 		count: usize,
 
-		#[clap(default_value = "#")]
+		#[arg(default_value = "#")]
 		topic: String,
 
-		#[clap(default_value = "#")]
 		payload: String,
 	},
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum InputQoS {
+	Qos0,
+	Qos1,
+	Qos2,
+}
+
+impl From<InputQoS> for QoS {
+	fn from(value: InputQoS) -> Self {
+		match value {
+			InputQoS::Qos0 => QoS::AtMostOnce,
+			InputQoS::Qos1 => QoS::AtLeastOnce,
+			InputQoS::Qos2 => QoS::ExactlyOnce,
+		}
+	}
 }
