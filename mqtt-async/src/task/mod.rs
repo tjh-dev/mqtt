@@ -44,6 +44,7 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> mqtt_core::Resu
 		let Ok(stream) = TcpStream::connect((options.host.as_str(), options.port)).await else {
 			continue;
 		};
+		stream.set_linger(Some(keep_alive_duration))?;
 		let mut connection = Connection::new(stream, 8 * 1024);
 
 		// Send the Connect packet.
@@ -79,7 +80,10 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> mqtt_core::Resu
 					tracing::debug!(?command);
 
 					if let Command::Shutdown = command {
+						// TODO: This shutdown process could be better.
+						connection.flush().await?;
 						connection.write_packet(&Disconnect.into()).await?;
+						connection.flush().await?;
 						return Ok(())
 					}
 
