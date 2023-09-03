@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use mqtt_async::{FilterBuf, Options, QoS};
-use std::{process, str::from_utf8};
+use std::{io::stdin, process, str::from_utf8};
 use tracing::subscriber::SetGlobalDefaultError;
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 
@@ -55,10 +55,31 @@ async fn main() -> mqtt_async::Result<()> {
 			payload,
 			..
 		} => {
-			for _ in 0..count {
-				client
-					.publish(&topic, payload.as_bytes().to_vec(), qos.into(), false)
-					.await?;
+			match payload {
+				Some(payload) => {
+					// The user has supplied the payload as a command-line argument. Publish
+					// the payload `count` times.
+					let payload = payload.as_bytes().to_vec();
+					for _ in 0..count.unwrap_or(1) {
+						client
+							.publish(&topic, payload.clone(), qos.into(), false)
+							.await?;
+					}
+				}
+				None => {
+					// The user has *not* supplied a payload on the command-line. Read lines
+					// from stdin, and publish upto `count` times if specified or until
+					// end-of-stream.
+					for (n, line) in stdin().lines().enumerate() {
+						if let Some(max) = count {
+							if n == max {
+								break;
+							}
+						}
+						let buffer = line.unwrap().trim_end_matches('\n').as_bytes().to_vec();
+						client.publish(&topic, buffer, qos.into(), false).await?;
+					}
+				}
 			}
 		}
 	}
@@ -166,13 +187,13 @@ enum Commands {
 		#[arg(from_global)]
 		disable_clean_session: bool,
 
-		#[arg(long, short = 'C', default_value = "1")]
-		count: usize,
+		#[arg(long, short = 'C')]
+		count: Option<usize>,
 
 		#[arg(default_value = "#")]
 		topic: String,
 
-		payload: String,
+		payload: Option<String>,
 	},
 }
 
