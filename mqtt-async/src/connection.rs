@@ -72,7 +72,12 @@ impl<T: AsyncWrite + Unpin> Connection<T> {
 		self.stream.write_all(&buf).await?;
 		self.stream.flush().await?;
 
-		tracing::debug!("wrote packet to stream");
+		tracing::debug!("wrote {packet:?} to stream");
+		Ok(())
+	}
+
+	pub async fn flush(&mut self) -> mqtt_core::Result<()> {
+		self.stream.flush().await?;
 		Ok(())
 	}
 }
