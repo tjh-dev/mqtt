@@ -9,24 +9,8 @@ async fn main() -> mqtt_async::Result<()> {
 	setup_tracing()?;
 
 	let arguments = Arguments::parse();
-	let Arguments {
-		command,
-		host,
-		port,
-		id,
-		keep_alive,
-		disable_clean_session,
-		qos,
-	} = arguments;
-
-	let options = Options {
-		host,
-		port,
-		keep_alive,
-		clean_session: !disable_clean_session,
-		client_id: id.unwrap_or_else(|| build_client_id(!disable_clean_session)),
-		..Default::default()
-	};
+	let options: Options = (&arguments).into();
+	let Arguments { command, qos, .. } = arguments;
 
 	// Create the MQTT client.
 	let (client, handle) = mqtt_async::client(options);
@@ -104,6 +88,30 @@ fn setup_tracing() -> Result<(), SetGlobalDefaultError> {
 		.finish();
 
 	tracing::subscriber::set_global_default(subscriber)
+}
+
+impl From<&Arguments> for Options {
+	fn from(value: &Arguments) -> Self {
+		let Arguments {
+			host,
+			port,
+			id,
+			keep_alive,
+			disable_clean_session,
+			..
+		} = value;
+
+		Options {
+			host: host.clone(),
+			port: *port,
+			keep_alive: *keep_alive,
+			clean_session: !disable_clean_session,
+			client_id: id
+				.clone()
+				.unwrap_or_else(|| build_client_id(!disable_clean_session)),
+			..Default::default()
+		}
+	}
 }
 
 fn build_client_id(clean_session: bool) -> String {
