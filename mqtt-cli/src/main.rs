@@ -157,7 +157,13 @@ struct Arguments {
 	#[arg(short = 'c', global = true)]
 	disable_clean_session: bool,
 
-	#[arg(long, value_enum, default_value = "qos0", rename_all = "lower")]
+	#[arg(
+		long,
+		value_enum,
+		global = true,
+		default_value = "qos0",
+		rename_all = "lower"
+	)]
 	qos: InputQoS,
 }
 
@@ -180,6 +186,9 @@ enum Commands {
 		#[arg(from_global)]
 		keep_alive: u16,
 
+		#[arg(from_global)]
+		qos: InputQoS,
+
 		#[clap(default_value = "#")]
 		topic: String,
 	},
@@ -195,6 +204,9 @@ enum Commands {
 
 		#[arg(from_global)]
 		disable_clean_session: bool,
+
+		#[arg(from_global)]
+		qos: InputQoS,
 
 		#[arg(long, short = 'C')]
 		count: Option<usize>,
