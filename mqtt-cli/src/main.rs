@@ -211,7 +211,6 @@ enum Commands {
 		#[arg(long, short = 'C')]
 		count: Option<usize>,
 
-		#[arg(default_value = "#")]
 		topic: String,
 
 		payload: Option<String>,
