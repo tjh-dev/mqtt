@@ -119,6 +119,7 @@ impl From<&Arguments> for Options {
 		let Arguments {
 			host,
 			port,
+			tls,
 			id,
 			keep_alive,
 			disable_clean_session,
@@ -127,7 +128,8 @@ impl From<&Arguments> for Options {
 
 		Options {
 			host: host.clone(),
-			port: *port,
+			port: (*port).unwrap_or(if *tls { 8883 } else { 1883 }),
+			tls: *tls,
 			keep_alive: *keep_alive,
 			clean_session: !disable_clean_session,
 			client_id: id
@@ -166,8 +168,8 @@ struct Arguments {
 	)]
 	host: String,
 
-	#[arg(long, short, global = true, default_value = "1883", env = "MQTT_PORT")]
-	port: u16,
+	#[arg(long, short, global = true, env = "MQTT_PORT")]
+	port: Option<u16>,
 
 	/// ID to use for this client.
 	#[arg(long, short = 'i', global = true, env = "MQTT_ID")]
@@ -189,6 +191,9 @@ struct Arguments {
 		rename_all = "lower"
 	)]
 	qos: InputQoS,
+
+	#[arg(long, global = true)]
+	tls: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -199,7 +204,7 @@ enum Commands {
 		host: String,
 
 		#[arg(from_global)]
-		port: u16,
+		port: Option<u16>,
 
 		#[arg(from_global)]
 		id: Option<String>,
@@ -213,6 +218,9 @@ enum Commands {
 		#[arg(from_global)]
 		qos: InputQoS,
 
+		#[arg(from_global)]
+		tls: bool,
+
 		#[clap(default_value = "#")]
 		topics: Vec<String>,
 	},
@@ -221,7 +229,7 @@ enum Commands {
 		host: String,
 
 		#[arg(from_global)]
-		port: u16,
+		port: Option<u16>,
 
 		#[arg(from_global)]
 		id: Option<String>,
@@ -231,6 +239,9 @@ enum Commands {
 
 		#[arg(from_global)]
 		qos: InputQoS,
+
+		#[arg(from_global)]
+		tls: bool,
 
 		#[arg(long, short = 'C')]
 		count: Option<usize>,

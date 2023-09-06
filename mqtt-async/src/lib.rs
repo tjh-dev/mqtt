@@ -12,6 +12,7 @@ use tokio::{sync::mpsc, task::JoinHandle};
 pub struct Options {
 	pub host: String,
 	pub port: u16,
+	pub tls: bool,
 	pub keep_alive: u16,
 	pub clean_session: bool,
 	pub client_id: String,
@@ -24,6 +25,7 @@ impl Default for Options {
 		Self {
 			host: Default::default(),
 			port: 1883,
+			tls: false,
 			keep_alive: 60,
 			clean_session: true,
 			client_id: Default::default(),
