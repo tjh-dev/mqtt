@@ -30,6 +30,8 @@ pub enum StateError {
 	InvalidPacket,
 
 	ProtocolError(&'static str),
+
+	DeliveryFailure(Publish),
 }
 
 impl State {

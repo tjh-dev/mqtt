@@ -5,6 +5,7 @@ use std::{
 	collections::{HashMap, HashSet},
 	num::NonZeroU16,
 };
+use tokio::sync::mpsc::error::TrySendError;
 
 #[derive(Debug, Default)]
 pub struct IncomingPublishManager {
@@ -55,6 +56,15 @@ impl IncomingPublishManager {
 			let result = channel.try_send(publish);
 
 			match (qos, id, result) {
+				(_, _, Err(TrySendError::Closed(publish))) => {
+					tracing::error!("failed to deliver Publish packet {publish:?}");
+					unimplemented!();
+				}
+				(QoS::AtMostOnce, Some(_), _)
+				| (QoS::AtLeastOnce, None, _)
+				| (QoS::ExactlyOnce, None, _) => {
+					unreachable!();
+				}
 				(QoS::AtMostOnce, None, _) => {
 					// We've received the Publish packet, found a suitable destination,
 					// and *tried* to deliver it.
@@ -67,10 +77,6 @@ impl IncomingPublishManager {
 					// Send a PubAck.
 					Ok(Some(PubAck { id }.into()))
 				}
-				(QoS::AtLeastOnce, Some(_), Err(e)) => {
-					tracing::error!("failed to deliver Publish packet, {e:?}");
-					Ok(None)
-				}
 				(QoS::ExactlyOnce, Some(id), Ok(_)) => {
 					// We've recevied the Publish packet, found a suitable destination,
 					// and successfully delivered it.
@@ -79,11 +85,11 @@ impl IncomingPublishManager {
 					self.awaiting_pubrel.insert(id);
 					Ok(Some(PubRec { id }.into()))
 				}
-				(QoS::ExactlyOnce, Some(_), Err(e)) => {
-					tracing::error!("failed to deliver Publish packet, {e:?}");
-					Ok(None)
+				(QoS::AtLeastOnce, Some(_), Err(TrySendError::Full(publish)))
+				| (QoS::ExactlyOnce, Some(_), Err(TrySendError::Full(publish))) => {
+					tracing::error!("failed to deliver Publish packet, channel full, {publish:?}");
+					Err(StateError::DeliveryFailure(publish))
 				}
-				_ => unreachable!(),
 			}
 		} else {
 			tracing::error!("failed to acquire destination for {publish:?}");
