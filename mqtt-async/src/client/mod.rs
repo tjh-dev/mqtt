@@ -1,4 +1,4 @@
-use crate::command::{Command, CommandTx, PublishCommand, SubscribeCommand};
+use crate::command::{Command, CommandTx, PublishCommand, SubscribeCommand, UnsubscribeCommand};
 use bytes::Bytes;
 use core::fmt;
 use mqtt_core::{FilterBuf, QoS};
@@ -94,6 +94,22 @@ impl Client {
 		tracing::debug!("completed in {:?}", start.elapsed());
 		Ok(())
 	}
+
+	#[tracing::instrument(skip(self), ret, err)]
+	pub async fn unsubscribe(&self, filters: Vec<FilterBuf>) -> Result<(), ClientError> {
+		let start = Instant::now();
+
+		let (response_tx, response_rx) = oneshot::channel();
+		self.tx
+			.send(Command::Unsubscribe(UnsubscribeCommand {
+				filters,
+				response_tx,
+			}))
+			.map_err(|_| ClientError::Disconnected)?;
+
+		response_rx.await.map_err(|_| ClientError::Disconnected)?;
+		tracing::debug!("completed in {:?}", start.elapsed());
+		Ok(())
 }
 
 impl Drop for Client {

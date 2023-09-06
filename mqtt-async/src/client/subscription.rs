@@ -1,6 +1,6 @@
 use super::ClientError;
 use crate::{
-	command::{Command, CommandTx},
+	command::{Command, CommandTx, UnsubscribeCommand},
 	state::PublishRx,
 };
 use bytes::Bytes;
@@ -63,16 +63,17 @@ impl Subscription {
 	///
 	/// This will send an 'Unsubscribe' packet to the broker, and won't return
 	/// until a corresponding 'UnsubAck' packet has been recevied.
+	#[tracing::instrument(ret, err)]
 	pub async fn unsubscribe(mut self) -> Result<(), ClientError> {
 		let (response_tx, response_rx) = oneshot::channel();
 
 		// Drain the filters from the Subscription. This will eliminate copying
 		// and prevent the Drop impl from doing anything.
 		let filters = self.filters.drain(..).map(|(f, _)| f).collect();
-		self.tx.send(Command::Unsubscribe {
+		self.tx.send(Command::Unsubscribe(UnsubscribeCommand {
 			filters,
 			response_tx,
-		})?;
+		}))?;
 
 		response_rx.await?;
 		Ok(())
@@ -116,10 +117,10 @@ impl Drop for Subscription {
 	fn drop(&mut self) {
 		if !self.filters.is_empty() {
 			let (tx, _) = oneshot::channel();
-			let _ = self.tx.send(Command::Unsubscribe {
+			let _ = self.tx.send(Command::Unsubscribe(UnsubscribeCommand {
 				filters: self.filters.drain(..).map(|(f, _)| f).collect(),
 				response_tx: tx,
-			});
+			}));
 		}
 	}
 }

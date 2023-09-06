@@ -40,8 +40,8 @@ impl State {
 			Command::Publish(command) => self.outgoing_publish.handle_publish_command(command),
 			Command::PublishComplete { id } => self.incoming_publish.handle_pubcomp_command(id),
 			Command::Subscribe(command) => self.subscriptions.handle_subscribe_command(command),
+			Command::Unsubscribe(command) => self.subscriptions.handle_unsubscribe_command(command),
 			Command::Shutdown => Some(Disconnect.into()),
-			_ => None,
 		}
 	}
 
@@ -59,7 +59,8 @@ impl State {
 			Packet::PubRec(pkt) => self.outgoing_publish.handle_pubrec(pkt),
 			Packet::PubRel(pkt) => self.incoming_publish.handle_pubrel(pkt),
 			Packet::PubComp(pkt) => self.outgoing_publish.handle_pubcomp(pkt).map(|_| None),
-			Packet::SubAck(suback) => self.subscriptions.handle_suback(suback).map(|_| None),
+			Packet::SubAck(pkt) => self.subscriptions.handle_suback(pkt).map(|_| None),
+			Packet::UnsubAck(pkt) => self.subscriptions.handle_unsuback(pkt).map(|_| None),
 			Packet::PingResp => Ok(None),
 			Packet::Connect(_)
 			| Packet::ConnAck { .. }
@@ -67,7 +68,6 @@ impl State {
 			| Packet::Unsubscribe { .. }
 			| Packet::PingReq
 			| Packet::Disconnect => Err(StateError::InvalidPacket),
-			_ => unimplemented!(),
 		}
 	}
 }

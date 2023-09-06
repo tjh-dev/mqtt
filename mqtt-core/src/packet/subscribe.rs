@@ -18,7 +18,7 @@ pub struct SubAck {
 #[derive(Debug)]
 pub struct Unsubscribe {
 	pub id: PacketId,
-	pub filters: Vec<String>,
+	pub filters: Vec<FilterBuf>,
 }
 
 super::id_packet!(UnsubAck, Packet::UnsubAck, 0xb0);
@@ -108,7 +108,7 @@ impl Unsubscribe {
 		let mut filters = Vec::new();
 		while cursor.has_remaining() {
 			let filter = super::get_str(&mut cursor)?;
-			filters.push(String::from(filter));
+			filters.push(FilterBuf::new(filter)?);
 		}
 
 		Ok(Self { id, filters })
@@ -125,7 +125,7 @@ impl Unsubscribe {
 		super::put_var(dst, len)?;
 		super::put_u16(dst, id.get())?;
 		for filter in filters {
-			super::put_str(dst, filter)?;
+			super::put_str(dst, filter.as_str())?;
 		}
 
 		Ok(())

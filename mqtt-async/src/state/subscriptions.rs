@@ -1,6 +1,6 @@
 use super::{PacketType, PublishTx, ResponseTx, StateError};
-use crate::command::SubscribeCommand;
-use mqtt_core::{FilterBuf, Packet, PacketId, QoS, SubAck, Subscribe};
+use crate::command::{SubscribeCommand, UnsubscribeCommand};
+use mqtt_core::{FilterBuf, Packet, PacketId, QoS, SubAck, Subscribe, UnsubAck, Unsubscribe};
 use std::{
 	collections::{BTreeMap, HashMap},
 	num::NonZeroU16,
@@ -13,6 +13,7 @@ pub struct SubscriptionsManager {
 
 	/// State for subcriptions requests awaiting a SubAck from the broker.
 	subscribe_state: HashMap<PacketId, SubscribeState>,
+	unsubscribe_state: HashMap<PacketId, UnsubscribeState>,
 
 	/// Active subcriptions.
 	subscriptions: BTreeMap<FilterBuf, PublishTx>,
@@ -25,11 +26,18 @@ struct SubscribeState {
 	response_tx: ResponseTx<Vec<(FilterBuf, QoS)>>,
 }
 
+#[derive(Debug)]
+struct UnsubscribeState {
+	filters: Vec<FilterBuf>,
+	response_tx: ResponseTx<()>,
+}
+
 impl Default for SubscriptionsManager {
 	fn default() -> Self {
 		Self {
 			subscribe_id: NonZeroU16::MIN,
 			subscribe_state: Default::default(),
+			unsubscribe_state: Default::default(),
 			subscriptions: Default::default(),
 		}
 	}
@@ -55,6 +63,24 @@ impl SubscriptionsManager {
 
 		// Build the Subscribe packet
 		Some(Subscribe { id, filters }.into())
+	}
+
+	pub fn handle_unsubscribe_command(&mut self, command: UnsubscribeCommand) -> Option<Packet> {
+		let UnsubscribeCommand {
+			filters,
+			response_tx,
+		} = command;
+
+		let id = self.generate_id();
+		self.unsubscribe_state.insert(
+			id,
+			UnsubscribeState {
+				filters: filters.clone(),
+				response_tx,
+			},
+		);
+
+		Some(Unsubscribe { id, filters }.into())
 	}
 
 	pub fn handle_suback(&mut self, suback: SubAck) -> Result<(), StateError> {
@@ -98,6 +124,33 @@ impl SubscriptionsManager {
 		}
 
 		// We don't generate any packets in response to SubAck.
+		Ok(())
+	}
+
+	pub fn handle_unsuback(&mut self, unsuback: UnsubAck) -> Result<(), StateError> {
+		let UnsubAck { id } = unsuback;
+		let Some(unsubscribe_state) = self.unsubscribe_state.remove(&id) else {
+			return Err(StateError::Unsolicited(PacketType::UnsubAck));
+		};
+
+		let UnsubscribeState {
+			filters,
+			response_tx,
+		} = unsubscribe_state;
+
+		// Remove the filters from the active subscriptions.
+		let len = self.subscriptions.len();
+		self.subscriptions.retain(|key, _| !filters.contains(key));
+		tracing::info!(
+			"removed {} filters, remaining filters = {:?}",
+			len - self.subscriptions.len(),
+			self.subscriptions
+		);
+
+		if response_tx.send(()).is_err() {
+			tracing::warn!("response channel for Unsubscribe command closed");
+		}
+
 		Ok(())
 	}
 
