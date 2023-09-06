@@ -31,8 +31,7 @@ async fn main() -> mqtt_async::Result<()> {
 				);
 			}
 
-			// Dropping the subscription will cause the topic to be unsubscribed.
-			drop(subscription);
+			subscription.unsubscribe().await?;
 		}
 		Commands::Pub {
 			count,
@@ -69,7 +68,7 @@ async fn main() -> mqtt_async::Result<()> {
 		}
 	}
 
-	drop(client);
+	client.disconnect().await?;
 	handle.await??;
 
 	Ok(())

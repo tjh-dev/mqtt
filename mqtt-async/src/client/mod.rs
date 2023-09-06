@@ -10,7 +10,7 @@ use tokio::{
 mod subscription;
 pub use subscription::{Message, Subscription};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Client {
 	tx: CommandTx,
 }
@@ -110,10 +110,21 @@ impl Client {
 		response_rx.await.map_err(|_| ClientError::Disconnected)?;
 		tracing::debug!("completed in {:?}", start.elapsed());
 		Ok(())
-}
+	}
 
-impl Drop for Client {
-	fn drop(&mut self) {
-		let _ = self.tx.send(Command::Shutdown);
+	pub async fn disconnect(self) -> Result<(), ClientError> {
+		self.tx
+			.send(Command::Shutdown)
+			.map_err(|_| ClientError::Disconnected)?;
+		Ok(())
 	}
 }
+
+// NOTE: This doesn't work, we don't want to disconnect when any clone of
+// Client is dropped.
+//
+// impl Drop for Client {
+// 	fn drop(&mut self) {
+// 		let _ = self.tx.send(Command::Shutdown);
+// 	}
+// }
