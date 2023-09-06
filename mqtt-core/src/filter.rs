@@ -265,9 +265,7 @@ impl ToOwned for Filter {
 
 #[cfg(test)]
 mod tests {
-	use crate::filter::Match;
-
-	use super::Filter;
+	use super::{Filter, Match};
 
 	#[test]
 	fn parses_filters() {
