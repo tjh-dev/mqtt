@@ -35,7 +35,7 @@ struct UnsubscribeState {
 impl Default for SubscriptionsManager {
 	fn default() -> Self {
 		Self {
-			subscribe_id: NonZeroU16::MIN,
+			subscribe_id: NonZeroU16::MAX,
 			subscribe_state: Default::default(),
 			unsubscribe_state: Default::default(),
 			subscriptions: Default::default(),
@@ -168,8 +168,11 @@ impl SubscriptionsManager {
 	/// Generates a new, non-zero packet ID.
 	#[inline]
 	fn generate_id(&mut self) -> PacketId {
-		while self.subscribe_state.contains_key(&self.subscribe_id) {
+		loop {
 			self.subscribe_id = self.subscribe_id.checked_add(1).unwrap_or(NonZeroU16::MIN);
+			if !self.subscribe_state.contains_key(&self.subscribe_id) {
+				break;
+			}
 		}
 		self.subscribe_id
 	}
