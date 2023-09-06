@@ -22,7 +22,7 @@ pub struct Match {
 
 impl Match {
 	pub fn score(&self) -> usize {
-		self.exact * 3 + self.wildcard * 2 + self.multi_wildcard
+		self.exact * 100 + self.wildcard * 10 + self.multi_wildcard
 	}
 }
 
