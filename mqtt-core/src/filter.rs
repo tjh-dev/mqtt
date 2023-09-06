@@ -2,7 +2,9 @@ use std::{borrow, error, fmt, ops};
 
 const LEVEL_SEPARATOR: char = '/';
 const SINGLE_LEVEL_WILDCARD: char = '+';
+const SINGLE_LEVEL_WILDCARD_STR: &str = "+";
 const MULTI_LEVEL_WILDCARD: char = '#';
+const MULTI_LEVEL_WILDCARD_STR: &str = "#";
 const WILDCARDS: [char; 2] = [SINGLE_LEVEL_WILDCARD, MULTI_LEVEL_WILDCARD];
 
 /// An MQTT topic filter.
@@ -120,17 +122,17 @@ impl Filter {
 
 		for filter_level in filter_levels {
 			match filter_level {
-				"#" => {
+				MULTI_LEVEL_WILDCARD_STR => {
 					let matches = topic_levels.by_ref().count();
 					result.multi_wildcard = (matches != 0).then_some(matches)?;
 					break;
 				}
-				"+" => {
+				SINGLE_LEVEL_WILDCARD_STR => {
 					topic_levels.next()?;
 					result.wildcard += 1;
 				}
-				exact => {
-					if !topic_levels.next().map_or(false, |t| t == exact) {
+				exact_match => {
+					if !topic_levels.next().map_or(false, |t| t == exact_match) {
 						return None;
 					}
 					result.exact += 1;
