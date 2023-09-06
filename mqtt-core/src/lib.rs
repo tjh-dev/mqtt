@@ -17,7 +17,7 @@ pub use self::{
 	qos::QoS,
 };
 
-pub type PacketId = u16;
+pub type PacketId = std::num::NonZeroU16;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub type Result<T> = std::result::Result<T, Error>;

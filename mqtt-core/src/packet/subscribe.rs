@@ -48,7 +48,7 @@ impl Subscribe {
 			.fold(0usize, |acc, (filter, _)| acc + 3 + filter.len());
 
 		super::put_var(dst, len)?;
-		super::put_u16(dst, *id)?;
+		super::put_u16(dst, id.get())?;
 		for (filter, qos) in filters {
 			super::put_str(dst, filter.as_str())?;
 			super::put_u8(dst, *qos as u8)?;
@@ -90,7 +90,7 @@ impl SubAck {
 		let len = 2 + result.len();
 
 		super::put_var(dst, len)?;
-		super::put_u16(dst, *id)?;
+		super::put_u16(dst, id.get())?;
 		for qos in result {
 			super::put_u8(dst, qos.map(|qos| qos as u8).unwrap_or(0x80))?;
 		}
@@ -123,7 +123,7 @@ impl Unsubscribe {
 			.fold(0usize, |acc, filter| acc + 2 + filter.len());
 
 		super::put_var(dst, len)?;
-		super::put_u16(dst, *id)?;
+		super::put_u16(dst, id.get())?;
 		for filter in filters {
 			super::put_str(dst, filter)?;
 		}

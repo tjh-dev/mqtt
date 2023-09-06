@@ -16,14 +16,14 @@ pub enum Publish {
 		payload: Bytes,
 	},
 	AtLeastOnce {
-		id: u16,
+		id: PacketId,
 		retain: bool,
 		duplicate: bool,
 		topic: String,
 		payload: Bytes,
 	},
 	ExactlyOnce {
-		id: u16,
+		id: PacketId,
 		retain: bool,
 		duplicate: bool,
 		topic: String,
@@ -117,7 +117,7 @@ impl Publish {
 				super::put_u8(dst, HEADER | flags)?;
 				super::put_var(dst, 4 + topic.len() + payload.len())?;
 				super::put_str(dst, topic)?;
-				super::put_u16(dst, *id)?;
+				super::put_u16(dst, id.get())?;
 				super::put_slice(dst, payload)?;
 			}
 			Self::ExactlyOnce {
@@ -133,7 +133,7 @@ impl Publish {
 				super::put_u8(dst, HEADER | flags)?;
 				super::put_var(dst, 4 + topic.len() + payload.len())?;
 				super::put_str(dst, topic)?;
-				super::put_u16(dst, *id)?;
+				super::put_u16(dst, id.get())?;
 				super::put_slice(dst, payload)?;
 			}
 		}
@@ -188,7 +188,7 @@ impl Publish {
 	///
 	/// [`AtMostOnce`]: QoS#variant.AtMostOnce
 	#[inline(always)]
-	pub fn id(&self) -> Option<u16> {
+	pub fn id(&self) -> Option<PacketId> {
 		match self {
 			Self::AtMostOnce { .. } => None,
 			Self::AtLeastOnce { id, .. } => Some(*id),

@@ -4,7 +4,7 @@ use crate::{
 	state::PublishRx,
 };
 use bytes::Bytes;
-use mqtt_core::{FilterBuf, QoS};
+use mqtt_core::{FilterBuf, PacketId, QoS};
 use std::ops;
 use tokio::sync::oneshot;
 
@@ -16,7 +16,7 @@ pub struct Message {
 #[derive(Debug)]
 pub struct MessageGuard {
 	msg: Option<Message>,
-	sig: Option<(u16, CommandTx)>,
+	sig: Option<(PacketId, CommandTx)>,
 }
 
 #[derive(Debug)]

@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use mqtt_core::{FilterBuf, Publish, QoS};
+use mqtt_core::{FilterBuf, PacketId, Publish, QoS};
 use tokio::sync::{
 	mpsc::{self, UnboundedReceiver, UnboundedSender},
 	oneshot,
@@ -17,7 +17,7 @@ pub enum Command {
 		response_tx: oneshot::Sender<()>,
 	},
 	PublishComplete {
-		id: u16,
+		id: PacketId,
 	},
 	Shutdown,
 }

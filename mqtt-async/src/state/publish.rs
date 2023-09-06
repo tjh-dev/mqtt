@@ -214,12 +214,12 @@ impl OutgoingPublishManager {
 	/// Generates a new, non-zero packet ID.
 	#[inline]
 	fn generate_id(&mut self) -> PacketId {
-		while self.awaiting_puback.contains_key(&self.publish_id.get())
-			| self.awaiting_pubrec.contains_key(&self.publish_id.get())
+		while self.awaiting_puback.contains_key(&self.publish_id)
+			| self.awaiting_pubrec.contains_key(&self.publish_id)
 		// We don't need to check `awaiting_pubcomp`
 		{
 			self.publish_id = self.publish_id.checked_add(1).unwrap_or(NonZeroU16::MIN);
 		}
-		self.publish_id.get()
+		self.publish_id
 	}
 }

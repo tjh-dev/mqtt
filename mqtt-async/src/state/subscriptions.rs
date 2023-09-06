@@ -116,9 +116,9 @@ impl SubscriptionsManager {
 	/// Generates a new, non-zero packet ID.
 	#[inline]
 	fn generate_id(&mut self) -> PacketId {
-		while self.subscribe_state.contains_key(&self.subscribe_id.get()) {
+		while self.subscribe_state.contains_key(&self.subscribe_id) {
 			self.subscribe_id = self.subscribe_id.checked_add(1).unwrap_or(NonZeroU16::MIN);
 		}
-		self.subscribe_id.get()
+		self.subscribe_id
 	}
 }
