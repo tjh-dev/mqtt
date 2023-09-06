@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use mqtt_async::{FilterBuf, Options, QoS};
 use std::{io::stdin, process, str::from_utf8};
+use tokio::{io, signal, task::JoinHandle};
 use tracing::subscriber::SetGlobalDefaultError;
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 
@@ -17,10 +18,18 @@ async fn main() -> mqtt_async::Result<()> {
 
 	match command {
 		Commands::Sub { topic, .. } => {
+			let filter = FilterBuf::new(topic)?;
 			// Create a subscription to the provided topic
-			let mut subscription = client
-				.subscribe(vec![(FilterBuf::new(topic)?, qos.into())])
-				.await?;
+			let mut subscription = client.subscribe(vec![(filter.clone(), qos.into())]).await?;
+
+			let signal_handler: JoinHandle<io::Result<()>> = {
+				let client = client.clone();
+				tokio::spawn(async move {
+					signal::ctrl_c().await?;
+					client.unsubscribe(vec![filter]).await.unwrap();
+					Ok(())
+				})
+			};
 
 			// Receive messages ... forever.
 			while let Some(message) = subscription.recv().await {
@@ -31,7 +40,7 @@ async fn main() -> mqtt_async::Result<()> {
 				);
 			}
 
-			subscription.unsubscribe().await?;
+			signal_handler.await??;
 		}
 		Commands::Pub {
 			count,
