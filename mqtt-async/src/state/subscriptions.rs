@@ -28,7 +28,7 @@ struct SubscribeState {
 impl Default for SubscriptionsManager {
 	fn default() -> Self {
 		Self {
-			subscribe_id: unsafe { NonZeroU16::new_unchecked(1) },
+			subscribe_id: NonZeroU16::MIN,
 			subscribe_state: Default::default(),
 			subscriptions: Default::default(),
 		}
@@ -114,16 +114,11 @@ impl SubscriptionsManager {
 	}
 
 	/// Generates a new, non-zero packet ID.
-	///
-	/// TODO: This does not currently verify that the packet ID isn't already in
-	/// use.
-	#[inline(always)]
+	#[inline]
 	fn generate_id(&mut self) -> PacketId {
-		let current = self.subscribe_id.get();
-		self.subscribe_id = self
-			.subscribe_id
-			.checked_add(1)
-			.unwrap_or(unsafe { NonZeroU16::new_unchecked(1) });
-		current
+		while self.subscribe_state.contains_key(&self.subscribe_id.get()) {
+			self.subscribe_id = self.subscribe_id.checked_add(1).unwrap_or(NonZeroU16::MIN);
+		}
+		self.subscribe_id.get()
 	}
 }

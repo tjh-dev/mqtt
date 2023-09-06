@@ -117,7 +117,7 @@ impl IncomingPublishManager {
 impl Default for OutgoingPublishManager {
 	fn default() -> Self {
 		Self {
-			publish_id: unsafe { NonZeroU16::new_unchecked(1) },
+			publish_id: NonZeroU16::MIN,
 			awaiting_puback: Default::default(),
 			awaiting_pubrec: Default::default(),
 			awaiting_pubcomp: Default::default(),
@@ -212,16 +212,14 @@ impl OutgoingPublishManager {
 	}
 
 	/// Generates a new, non-zero packet ID.
-	///
-	/// TODO: This does not currently verify that the packet ID isn't already in
-	/// use.
-	#[inline(always)]
+	#[inline]
 	fn generate_id(&mut self) -> PacketId {
-		let current = self.publish_id.get();
-		self.publish_id = self
-			.publish_id
-			.checked_add(1)
-			.unwrap_or(unsafe { NonZeroU16::new_unchecked(1) });
-		current
+		while self.awaiting_puback.contains_key(&self.publish_id.get())
+			| self.awaiting_pubrec.contains_key(&self.publish_id.get())
+		// We don't need to check `awaiting_pubcomp`
+		{
+			self.publish_id = self.publish_id.checked_add(1).unwrap_or(NonZeroU16::MIN);
+		}
+		self.publish_id.get()
 	}
 }
