@@ -41,7 +41,15 @@ impl Subscription {
 	/// }
 	/// ```
 	pub async fn recv(&mut self) -> Option<MessageGuard> {
-		match self.rx.recv().await? {
+		let Some(next_message) = self.rx.recv().await else {
+			// All the matching senders for the channel have been closed or dropped.
+			//
+			// Drain the filters so the Drop impl does nothing.
+			self.filters.drain(..);
+			return None;
+		};
+
+		match next_message {
 			mqtt_core::Publish::AtMostOnce { topic, payload, .. } => Some(MessageGuard {
 				msg: Some(Message { topic, payload }),
 				sig: None,
