@@ -1,9 +1,11 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use mqtt_async::{FilterBuf, Options, QoS};
-use std::{io::stdin, process, str::from_utf8};
+use std::{io::stdin, process, str::from_utf8, time::Duration};
 use tokio::{io, signal, task::JoinHandle};
 use tracing::subscriber::SetGlobalDefaultError;
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};
+
+const EXIT_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> mqtt_async::Result<()> {
@@ -18,7 +20,9 @@ async fn main() -> mqtt_async::Result<()> {
 
 	match command {
 		Commands::Sub { topic, .. } => {
+			// Convert the topic into a filter.
 			let filter = FilterBuf::new(topic)?;
+
 			// Create a subscription to the provided topic
 			let mut subscription = client.subscribe(vec![(filter.clone(), qos.into())]).await?;
 
@@ -26,7 +30,14 @@ async fn main() -> mqtt_async::Result<()> {
 				let client = client.clone();
 				tokio::spawn(async move {
 					signal::ctrl_c().await?;
-					client.unsubscribe(vec![filter]).await.unwrap();
+					let timeout = tokio::time::sleep(EXIT_TIMEOUT);
+					tokio::select! {
+						_ = timeout => {
+							tracing::warn!("Unsubscribe command timed-out, exiting");
+							process::exit(1);
+						}
+						_ = client.unsubscribe(vec![filter]) => {}
+					};
 					Ok(())
 				})
 			};
