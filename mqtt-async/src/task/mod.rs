@@ -102,6 +102,7 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> mqtt_core::Resu
 						break
 					};
 
+					tracing::debug!("recevied {packet:?}");
 					let response = match client_state.process_incoming_packet(packet) {
 						Ok(Some(packet)) => packet,
 						Ok(None) => {
