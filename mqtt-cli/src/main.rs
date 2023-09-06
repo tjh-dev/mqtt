@@ -19,12 +19,17 @@ async fn main() -> mqtt_async::Result<()> {
 	let (client, handle) = mqtt_async::client(options);
 
 	match command {
-		Commands::Sub { topic, .. } => {
-			// Convert the topic into a filter.
-			let filter = FilterBuf::new(topic)?;
+		Commands::Sub { topics, .. } => {
+			// Convert the topics into a filters.
+			let mut filters = Vec::with_capacity(topics.len());
+			for topic in topics {
+				filters.push(FilterBuf::new(topic)?);
+			}
 
 			// Create a subscription to the provided topic
-			let mut subscription = client.subscribe(vec![(filter.clone(), qos.into())]).await?;
+			let mut subscription = client
+				.subscribe(filters.iter().cloned().map(|f| (f, qos.into())).collect())
+				.await?;
 
 			let signal_handler: JoinHandle<io::Result<()>> = {
 				let client = client.clone();
@@ -36,7 +41,7 @@ async fn main() -> mqtt_async::Result<()> {
 							tracing::warn!("Unsubscribe command timed-out, exiting");
 							process::exit(1);
 						}
-						_ = client.unsubscribe(vec![filter]) => {}
+						_ = client.unsubscribe(filters) => {}
 					};
 					Ok(())
 				})
@@ -209,7 +214,7 @@ enum Commands {
 		qos: InputQoS,
 
 		#[clap(default_value = "#")]
-		topic: String,
+		topics: Vec<String>,
 	},
 	Pub {
 		#[arg(from_global)]
