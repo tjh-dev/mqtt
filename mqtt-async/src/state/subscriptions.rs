@@ -106,8 +106,7 @@ impl SubscriptionsManager {
 		self.subscriptions
 			.iter()
 			.filter_map(|(filter, channel)| {
-				let mat = filter.matches_topic(topic)?;
-				Some((mat.score(), channel))
+				filter.matches_topic(topic).map(|score| (score, channel))
 			})
 			.max_by_key(|(score, _)| *score)
 			.map(|(_, channel)| channel)
