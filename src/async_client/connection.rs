@@ -1,4 +1,4 @@
-use crate::Packet;
+use crate::{packets::ParseError, Packet};
 use bytes::{Buf, BytesMut};
 use std::io::Cursor;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -17,8 +17,8 @@ impl<T> Connection<T> {
 		}
 	}
 
-	fn parse_packet(&mut self) -> Result<Option<Packet>, crate::PacketError> {
-		use crate::PacketError::Incomplete;
+	fn parse_packet(&mut self) -> Result<Option<Packet>, ParseError> {
+		use ParseError::Incomplete;
 
 		let mut buf = Cursor::new(&self.buffer[..]);
 		match Packet::check(&mut buf) {

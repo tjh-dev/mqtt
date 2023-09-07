@@ -4,7 +4,7 @@ mod connection;
 mod state;
 mod task;
 
-use crate::{Credentials, Will};
+use crate::misc::{Credentials, Will};
 pub use crate::{Error, Filter, FilterBuf, FilterError, Packet, QoS, Result};
 use tokio::{sync::mpsc, task::JoinHandle};
 

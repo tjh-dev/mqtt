@@ -4,7 +4,10 @@ use crate::async_client::{
 	state::State,
 	Options,
 };
-use crate::{ConnAck, Connect, Disconnect, Packet, PingReq};
+use crate::{
+	packets::{ConnAck, Connect, Disconnect, PingReq},
+	Packet,
+};
 use std::time::Duration;
 use tokio::{
 	io::{AsyncRead, AsyncWrite},
@@ -126,6 +129,8 @@ async fn connected_task<T: AsyncRead + AsyncWrite + Unpin>(
 	// let mut command_queue = VecDeque::new();
 
 	loop {
+		// First check if we have any packets to send.
+
 		tokio::select! {
 			Some(command) = rx.recv() => {
 				tracing::debug!(?command);
@@ -138,13 +143,12 @@ async fn connected_task<T: AsyncRead + AsyncWrite + Unpin>(
 					return Ok(false)
 				}
 
-				let Some(response) = client_state.process_client_command(command) else {
-					continue
-				};
+				client_state.process_client_command(command);
 
-				if connection.write_packet(&response).await.is_err() {
-					break Ok(true);
-				}
+
+				// if connection.write_packet(&response).await.is_err() {
+				// 	break Ok(true);
+				// }
 			}
 			Ok(packet) = connection.read_packet() => {
 				tracing::trace!(?packet);
@@ -153,21 +157,10 @@ async fn connected_task<T: AsyncRead + AsyncWrite + Unpin>(
 				};
 
 				tracing::debug!("recevied {packet:?}");
-				let response = match client_state.process_incoming_packet(packet) {
-					Ok(Some(packet)) => packet,
-					Ok(None) => {
-						tracing::debug!("processed packet, no response to send");
-						continue;
-					}
-					Err(error) => {
-						tracing::error!("{error:?}");
-						break Ok(true);
-					}
-				};
-
-				if connection.write_packet(&response).await.is_err() {
+				if let Err(error) = client_state.process_incoming_packet(packet) {
+					tracing::error!("{error:?}");
 					break Ok(true);
-				}
+				};
 			}
 			_ = keep_alive.tick() => {
 				tracing::debug!("{client_state:#?}");

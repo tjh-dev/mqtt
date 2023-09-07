@@ -28,7 +28,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = tr
 webpki-roots = { version = "0.25.2", optional = true }
 
 [features]
-default = []
+default = ["async-client", "cli", "tls"]
 async-client = ["dep:tokio", "dep:tracing"]
 cli = ["async-client", "tls", "tokio/rt", "tokio/signal", "tokio/macros", "dep:clap", "dep:tracing-subscriber"]
 tls = ["dep:tokio-rustls", "dep:webpki-roots"]

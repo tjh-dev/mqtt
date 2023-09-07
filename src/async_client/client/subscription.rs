@@ -50,15 +50,15 @@ impl Subscription {
 		};
 
 		match next_message {
-			crate::Publish::AtMostOnce { topic, payload, .. } => Some(MessageGuard {
+			crate::packets::Publish::AtMostOnce { topic, payload, .. } => Some(MessageGuard {
 				msg: Some(Message { topic, payload }),
 				sig: None,
 			}),
-			crate::Publish::AtLeastOnce { topic, payload, .. } => Some(MessageGuard {
+			crate::packets::Publish::AtLeastOnce { topic, payload, .. } => Some(MessageGuard {
 				msg: Some(Message { topic, payload }),
 				sig: None,
 			}),
-			crate::Publish::ExactlyOnce {
+			crate::packets::Publish::ExactlyOnce {
 				topic, payload, id, ..
 			} => Some(MessageGuard {
 				msg: Some(Message { topic, payload }),

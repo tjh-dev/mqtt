@@ -1,6 +1,9 @@
 use super::{subscriptions::SubscriptionsManager, StateError};
 use crate::async_client::command::{PublishCommand, ResponseTx};
-use crate::{Packet, PacketId, PacketType, PubAck, PubComp, PubRec, PubRel, Publish, QoS};
+use crate::{
+	packets::{PubAck, PubComp, PubRec, PubRel, Publish},
+	Packet, PacketId, PacketType, QoS,
+};
 use std::{
 	collections::{HashMap, HashSet},
 	num::NonZeroU16,
