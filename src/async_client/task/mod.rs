@@ -20,6 +20,30 @@ use self::holdoff::HoldOff;
 
 const HOLDOFF_MIN: Duration = Duration::from_millis(50);
 
+trait AsyncReadWrite: AsyncRead + AsyncWrite + Send {}
+impl AsyncReadWrite for TcpStream {}
+impl AsyncReadWrite for tokio_rustls::client::TlsStream<TcpStream> {}
+
+struct MqttStream {
+	stream: PacketStream<Box<dyn AsyncReadWrite + Unpin>>,
+}
+
+impl MqttStream {
+	fn new(stream: Box<dyn AsyncReadWrite + Unpin>, len: usize) -> Self {
+		Self {
+			stream: PacketStream::new(stream, len),
+		}
+	}
+
+	async fn write_packet(&mut self, packet: &Packet) -> crate::Result<()> {
+		self.stream.write_packet(packet).await
+	}
+
+	async fn read_packet(&mut self) -> crate::Result<Option<Packet>> {
+		self.stream.read_packet().await
+	}
+}
+
 #[tracing::instrument(skip(options, rx), ret, err)]
 pub async fn client_task(options: Options, mut rx: CommandRx) -> crate::Result<()> {
 	//
@@ -49,7 +73,7 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> crate::Result<(
 		};
 		stream.set_linger(Some(keep_alive_duration))?;
 
-		let should_continue = match options.tls {
+		let mut connection = match options.tls {
 			#[cfg(feature = "tls")]
 			true => {
 				tracing::info!("Connecting with TLS");
@@ -61,114 +85,81 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> crate::Result<(
 				let dnsname = ServerName::try_from(options.host.as_str()).unwrap();
 
 				let stream = connector.connect(dnsname, stream).await?;
-				let mut connection = PacketStream::new(stream, 8 * 1024);
-
-				connected_task(
-					&mut client_state,
-					&mut holdoff,
-					&connect,
-					&mut connection,
-					keep_alive_duration,
-					&mut rx,
-				)
-				.await?
+				MqttStream::new(Box::new(stream), 8 * 1024)
 			}
 			#[cfg(not(feature = "tls"))]
 			true => {
 				panic!("TLS not supported");
 			}
-			false => {
-				let mut connection = PacketStream::new(stream, 8 * 1024);
-				connected_task(
-					&mut client_state,
-					&mut holdoff,
-					&connect,
-					&mut connection,
-					keep_alive_duration,
-					&mut rx,
-				)
-				.await?
-			}
+			false => MqttStream::new(Box::new(stream), 8 * 1024),
 		};
 
-		if !should_continue {
-			break Ok(());
+		// Send the Connect packet.
+		connection.write_packet(&connect).await?;
+		match wait_for_connack(&mut connection, keep_alive_duration).await? {
+			ConnAckResult::Continue { session_present } => {
+				tracing::debug!("connected! session_present = {session_present}");
+				holdoff.reset();
+			}
+			ConnAckResult::Timeout => {
+				tracing::error!("timeout waiting for ConnAck");
+				continue;
+			}
 		}
-	}
-}
 
-async fn connected_task<T: AsyncRead + AsyncWrite + Unpin>(
-	client_state: &mut State,
-	holdoff: &mut HoldOff,
-	connect: &Packet,
-	connection: &mut PacketStream<T>,
-	keep_alive_duration: time::Duration,
-	rx: &mut CommandRx,
-) -> crate::Result<bool> {
-	// Send the Connect packet.
-	connection.write_packet(connect).await?;
+		let mut pingreq_sent: Option<Instant> = None;
 
-	match wait_for_connack(connection, keep_alive_duration).await? {
-		ConnAckResult::Continue { session_present } => {
-			tracing::debug!("connected! session_present = {session_present}");
-			holdoff.reset();
-		}
-		ConnAckResult::Timeout => {
-			tracing::error!("timeout waiting for ConnAck");
-			return Ok(false);
-		}
-	}
+		// Discard the first tick from the keep-alive interval.
+		let mut keep_alive = time::interval(keep_alive_duration);
+		let _ = keep_alive.tick().await;
 
-	let mut pingreq_sent: Option<Instant> = None;
+		loop {
+			tokio::select! {
+				Some(command) = rx.recv() => {
+					tracing::debug!(?command);
 
-	// Discard the first tick from the keep-alive interval.
-	let mut keep_alive = time::interval(keep_alive_duration);
-	let _ = keep_alive.tick().await;
+					if let Command::Shutdown = command {
+						// TODO: This shutdown process could be better.
+						connection.write_packet(&Disconnect.into()).await?;
+						return Ok(())
+					}
 
-	// let mut command_queue = VecDeque::new();
-
-	loop {
-		// First check if we have any packets to send.
-
-		tokio::select! {
-			Some(command) = rx.recv() => {
-				tracing::debug!(?command);
-
-				if let Command::Shutdown = command {
-					// TODO: This shutdown process could be better.
-					connection.flush().await?;
-					connection.write_packet(&Disconnect.into()).await?;
-					connection.flush().await?;
-					return Ok(false)
+					if let Some(packet) = client_state.process_client_command(command) {
+						if connection.write_packet(&packet).await.is_err() {
+							break
+						}
+					}
 				}
+				Ok(packet) = connection.read_packet() => {
+					let Some(packet) = packet else {
+						tracing::warn!("connection reset by peer");
+						break
+					};
 
-				client_state.process_client_command(command);
+					tracing::trace!(packet = ?packet, "recevied from Server");
 
-
-				// if connection.write_packet(&response).await.is_err() {
-				// 	break Ok(true);
-				// }
-			}
-			Ok(packet) = connection.read_packet() => {
-				tracing::trace!(?packet);
-				let Some(packet) = packet else {
-					break Ok(true)
-				};
-
-				tracing::debug!("recevied {packet:?}");
-				if let Err(error) = client_state.process_incoming_packet(packet) {
-					tracing::error!("{error:?}");
-					break Ok(true);
-				};
-			}
-			_ = keep_alive.tick() => {
-				tracing::debug!("{client_state:#?}");
-				pingreq_sent.replace(Instant::now());
-				connection.write_packet(&PingReq.into()).await?;
-			}
-			else => {
-				tracing::warn!("ending client task");
-				return Ok(false)
+					match client_state.process_incoming_packet(packet) {
+						Err(error) => {
+							tracing::error!("{error:?}");
+							break
+						}
+						Ok(Some(packet)) => {
+							if connection.write_packet(&packet).await.is_err() {
+								break
+							}
+						}
+						Ok(None) => {}
+					};
+				}
+				_ = keep_alive.tick() => {
+					tracing::debug!("{client_state:#?}");
+					pingreq_sent.replace(Instant::now());
+					connection.write_packet(&PingReq.into()).await?;
+				}
+				else => {
+					tracing::warn!("ending client task");
+					return Ok(())
+				}
 			}
 		}
 	}
@@ -179,8 +170,8 @@ enum ConnAckResult {
 	Timeout,
 }
 
-async fn wait_for_connack<T: AsyncRead + Unpin>(
-	connection: &mut PacketStream<T>,
+async fn wait_for_connack(
+	connection: &mut MqttStream,
 	timeout: time::Duration,
 ) -> crate::Result<ConnAckResult> {
 	let mut timeout = time::interval_at(Instant::now() + timeout, timeout);

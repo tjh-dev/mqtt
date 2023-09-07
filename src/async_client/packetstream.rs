@@ -45,7 +45,6 @@ impl<T: AsyncRead + Unpin> PacketStream<T> {
 		loop {
 			// Attempt to parse a packet from the buffered data.
 			if let Some(packet) = self.parse_packet()? {
-				tracing::trace!("incoming {packet:?}");
 				return Ok(Some(packet));
 			}
 

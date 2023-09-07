@@ -10,7 +10,6 @@ pub mod async_client;
 pub mod filter;
 pub mod misc;
 pub mod packets;
-pub mod state;
 
 pub use self::{
 	filter::{Filter, FilterBuf, FilterError},
