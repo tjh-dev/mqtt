@@ -40,8 +40,7 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> crate::Result<(
 	loop {
 		// Use a hold-off when reconnecting. On the first connection attempt, this
 		// won't wait at all.
-		holdoff.wait().await;
-		holdoff.increase_with(|delay| delay * 2);
+		holdoff.wait_and_increase_with(|delay| delay * 2).await;
 		tracing::debug!("{holdoff:?}");
 
 		// Open the the connection to the broker.
