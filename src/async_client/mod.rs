@@ -1,12 +1,11 @@
-pub mod client;
+mod client;
 mod command;
 mod packetstream;
 mod state;
 mod task;
 
 use crate::misc::{Credentials, Will};
-pub use crate::{Error, Filter, FilterBuf, FilterError, Packet, QoS, Result};
-pub use client::{Client, Subscription};
+pub use client::{Client, Message, MessageGuard, Subscription};
 use tokio::{sync::mpsc, task::JoinHandle};
 
 #[derive(Debug)]

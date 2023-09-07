@@ -8,7 +8,7 @@ use tokio::{
 };
 
 mod subscription;
-pub use subscription::{Message, Subscription};
+pub use subscription::{Message, MessageGuard, Subscription};
 
 #[derive(Clone, Debug)]
 pub struct Client {
