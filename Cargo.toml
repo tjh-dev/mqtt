@@ -1,6 +1,6 @@
 [package]
-name = "mqtt-core"
-version = "0.0.0"
+name = "tjh-mqtt"
+version = "0.1.0"
 edition = "2021"
 
 [dependencies]
