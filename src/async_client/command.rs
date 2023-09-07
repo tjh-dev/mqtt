@@ -1,5 +1,5 @@
+use crate::{FilterBuf, PacketId, Publish, QoS};
 use bytes::Bytes;
-use mqtt_core::{FilterBuf, PacketId, Publish, QoS};
 use tokio::sync::{
 	mpsc::{self, UnboundedReceiver, UnboundedSender},
 	oneshot,

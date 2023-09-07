@@ -1,10 +1,10 @@
 use super::ClientError;
-use crate::{
+use crate::async_client::{
 	command::{Command, CommandTx, UnsubscribeCommand},
 	state::PublishRx,
 };
+use crate::{FilterBuf, PacketId, QoS};
 use bytes::Bytes;
-use mqtt_core::{FilterBuf, PacketId, QoS};
 use std::ops;
 use tokio::sync::oneshot;
 
@@ -50,15 +50,15 @@ impl Subscription {
 		};
 
 		match next_message {
-			mqtt_core::Publish::AtMostOnce { topic, payload, .. } => Some(MessageGuard {
+			crate::Publish::AtMostOnce { topic, payload, .. } => Some(MessageGuard {
 				msg: Some(Message { topic, payload }),
 				sig: None,
 			}),
-			mqtt_core::Publish::AtLeastOnce { topic, payload, .. } => Some(MessageGuard {
+			crate::Publish::AtLeastOnce { topic, payload, .. } => Some(MessageGuard {
 				msg: Some(Message { topic, payload }),
 				sig: None,
 			}),
-			mqtt_core::Publish::ExactlyOnce {
+			crate::Publish::ExactlyOnce {
 				topic, payload, id, ..
 			} => Some(MessageGuard {
 				msg: Some(Message { topic, payload }),

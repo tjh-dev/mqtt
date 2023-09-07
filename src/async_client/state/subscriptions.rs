@@ -1,6 +1,6 @@
 use super::{PacketType, PublishTx, ResponseTx, StateError};
-use crate::command::{SubscribeCommand, UnsubscribeCommand};
-use mqtt_core::{FilterBuf, Packet, PacketId, QoS, SubAck, Subscribe, UnsubAck, Unsubscribe};
+use crate::async_client::command::{SubscribeCommand, UnsubscribeCommand};
+use crate::{FilterBuf, Packet, PacketId, QoS, SubAck, Subscribe, UnsubAck, Unsubscribe};
 use std::{
 	collections::{BTreeMap, HashMap},
 	num::NonZeroU16,

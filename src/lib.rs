@@ -2,6 +2,9 @@
 //!
 //! A library for interacting with the MQTT protocol.
 //!
+#[cfg(feature = "async-client")]
+pub mod async_client;
+
 mod filter;
 mod packet;
 mod packet_type;

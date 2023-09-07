@@ -1,10 +1,10 @@
-use crate::{
+use crate::async_client::{
 	command::{Command, CommandRx},
 	connection::Connection,
 	state::State,
 	Options,
 };
-use mqtt_core::{ConnAck, Connect, Disconnect, Packet, PingReq};
+use crate::{ConnAck, Connect, Disconnect, Packet, PingReq};
 use std::time::Duration;
 use tokio::{
 	io::{AsyncRead, AsyncWrite},
@@ -18,7 +18,7 @@ use self::holdoff::HoldOff;
 const HOLDOFF_MIN: Duration = Duration::from_millis(50);
 
 #[tracing::instrument(skip(options, rx), ret, err)]
-pub async fn client_task(options: Options, mut rx: CommandRx) -> mqtt_core::Result<()> {
+pub async fn client_task(options: Options, mut rx: CommandRx) -> crate::Result<()> {
 	//
 	// Build the Connect packet.
 	let connect: Packet = Connect {
@@ -102,7 +102,7 @@ async fn connected_task<T: AsyncRead + AsyncWrite + Unpin>(
 	connection: &mut Connection<T>,
 	keep_alive_duration: time::Duration,
 	rx: &mut CommandRx,
-) -> mqtt_core::Result<bool> {
+) -> crate::Result<bool> {
 	// Send the Connect packet.
 	connection.write_packet(connect).await?;
 

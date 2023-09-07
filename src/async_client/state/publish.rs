@@ -1,6 +1,6 @@
 use super::{subscriptions::SubscriptionsManager, ResponseTx, StateError};
-use crate::command::PublishCommand;
-use mqtt_core::{Packet, PacketId, PacketType, PubAck, PubComp, PubRec, PubRel, Publish, QoS};
+use crate::async_client::command::PublishCommand;
+use crate::{Packet, PacketId, PacketType, PubAck, PubComp, PubRec, PubRel, Publish, QoS};
 use std::{
 	collections::{HashMap, HashSet},
 	num::NonZeroU16,
@@ -183,7 +183,7 @@ impl OutgoingPublishManager {
 		let tx = self
 			.awaiting_puback
 			.remove(&puback.id)
-			.ok_or(StateError::Unsolicited(mqtt_core::PacketType::PubAck))?;
+			.ok_or(StateError::Unsolicited(crate::PacketType::PubAck))?;
 
 		let _ = tx.send(());
 		Ok(())
@@ -193,7 +193,7 @@ impl OutgoingPublishManager {
 		let tx = self
 			.awaiting_pubrec
 			.remove(&pubrec.id)
-			.ok_or(StateError::Unsolicited(mqtt_core::PacketType::PubAck))?;
+			.ok_or(StateError::Unsolicited(crate::PacketType::PubAck))?;
 
 		self.awaiting_pubcomp.insert(pubrec.id, tx);
 		Ok(Some(PubRel { id: pubrec.id }.into()))
@@ -205,7 +205,7 @@ impl OutgoingPublishManager {
 		let tx = self
 			.awaiting_pubcomp
 			.remove(&pubcomp.id)
-			.ok_or(StateError::Unsolicited(mqtt_core::PacketType::PubAck))?;
+			.ok_or(StateError::Unsolicited(crate::PacketType::PubAck))?;
 
 		let _ = tx.send(());
 		Ok(())

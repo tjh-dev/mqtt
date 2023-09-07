@@ -1,7 +1,7 @@
-use crate::command::{Command, CommandTx, PublishCommand, SubscribeCommand, UnsubscribeCommand};
+use super::command::{Command, CommandTx, PublishCommand, SubscribeCommand, UnsubscribeCommand};
+use crate::{FilterBuf, QoS};
 use bytes::Bytes;
 use core::fmt;
-use mqtt_core::{FilterBuf, QoS};
 use tokio::{
 	sync::{mpsc, oneshot},
 	time::Instant,

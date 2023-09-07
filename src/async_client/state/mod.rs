@@ -5,8 +5,8 @@ use self::{
 	publish::{IncomingPublishManager, OutgoingPublishManager},
 	subscriptions::SubscriptionsManager,
 };
-use crate::command::Command;
-use mqtt_core::{Disconnect, Packet, PacketType, Publish};
+use super::command::Command;
+use crate::{Disconnect, Packet, PacketType, Publish};
 use tokio::sync::{mpsc, oneshot};
 
 pub type PublishTx = mpsc::Sender<Publish>;

@@ -4,8 +4,8 @@ mod connection;
 mod state;
 mod task;
 
-use mqtt_core::{Credentials, Will};
-pub use mqtt_core::{Error, Filter, FilterBuf, FilterError, Packet, QoS, Result};
+use crate::{Credentials, Will};
+pub use crate::{Error, Filter, FilterBuf, FilterError, Packet, QoS, Result};
 use tokio::{sync::mpsc, task::JoinHandle};
 
 #[derive(Debug)]
@@ -48,7 +48,7 @@ impl<H: AsRef<str>> From<(H, u16)> for Options {
 
 /// Construct a new asynchronous MQTT client.
 ///
-pub fn client(options: impl Into<Options>) -> (client::Client, JoinHandle<mqtt_core::Result<()>>) {
+pub fn client(options: impl Into<Options>) -> (client::Client, JoinHandle<crate::Result<()>>) {
 	let (tx, rx) = mpsc::unbounded_channel();
 	let handle = tokio::spawn(task::client_task(options.into(), rx));
 
