@@ -24,12 +24,13 @@ impl<T> PacketStream<T> {
 
 		let mut buf = Cursor::new(&self.buffer[..]);
 		match Packet::check(&mut buf) {
-			Ok(_) => {
-				let len = buf.position() as usize;
+			Ok(extent) => {
+				// Rewind the cursor and parse the packet.
 				buf.set_position(0);
-
 				let packet = Packet::parse(&mut buf)?;
-				self.buffer.advance(len);
+
+				// Advance the read buffer.
+				self.buffer.advance(extent as usize);
 				Ok(Some(packet))
 			}
 			Err(Incomplete) => Ok(None),
