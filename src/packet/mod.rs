@@ -3,11 +3,11 @@ mod publish;
 mod subscribe;
 
 pub use self::{
-	connect::{ConnAck, Connect},
+	connect::{ConnAck, Connect, Credentials, Will},
 	publish::{PubAck, PubComp, PubRec, PubRel, Publish},
 	subscribe::{SubAck, Subscribe, UnsubAck, Unsubscribe},
 };
-use crate::{qos::InvalidQoS, FilterError};
+use crate::{qos::InvalidQoS, FilterError, PacketId};
 use bytes::{Buf, BufMut};
 use std::{
 	error, fmt, io, mem,
@@ -44,9 +44,9 @@ pub enum Packet {
 	SubAck(SubAck),
 	Unsubscribe(Unsubscribe),
 	UnsubAck(UnsubAck),
-	PingReq(PingReq),
-	PingResp(PingResp),
-	Disconnect(Disconnect),
+	PingReq,
+	PingResp,
+	Disconnect,
 }
 
 #[derive(Debug)]
@@ -142,9 +142,9 @@ impl Packet {
 			Self::SubAck(suback) => suback.serialize_to_bytes(dst),
 			Self::Unsubscribe(unsubscribe) => unsubscribe.serialize_to_bytes(dst),
 			Self::UnsubAck(unsuback) => unsuback.serialize_to_bytes(dst),
-			Self::PingReq(pingreq) => pingreq.serialize_to_bytes(dst),
-			Self::PingResp(pingresp) => pingresp.serialize_to_bytes(dst),
-			Self::Disconnect(disconnect) => disconnect.serialize_to_bytes(dst),
+			Self::PingReq => PingReq.serialize_to_bytes(dst),
+			Self::PingResp => PingResp.serialize_to_bytes(dst),
+			Self::Disconnect => Disconnect.serialize_to_bytes(dst),
 		}
 	}
 }
@@ -193,11 +193,9 @@ fn put_u16(dst: &mut impl BufMut, val: u16) -> Result<(), WriteError> {
 }
 
 #[inline(always)]
-fn get_id(src: &mut io::Cursor<&[u8]>) -> Result<u16, Error> {
+fn get_id(src: &mut io::Cursor<&[u8]>) -> Result<PacketId, Error> {
 	let id = get_u16(src)?;
-	if id == 0 {
-		return Err(Error::ZeroPacketId);
-	}
+	let id = PacketId::new(id).ok_or(Error::ZeroPacketId)?;
 	Ok(id)
 }
 
@@ -295,7 +293,7 @@ macro_rules! id_packet {
 				let Self { id } = self;
 				super::put_u8(dst, $header)?;
 				super::put_var(dst, 2)?;
-				super::put_u16(dst, *id)?;
+				super::put_u16(dst, id.get())?;
 				Ok(())
 			}
 		}
@@ -329,8 +327,8 @@ macro_rules! nul_packet {
 		}
 
 		impl From<$name> for Packet {
-			fn from(value: $name) -> Packet {
-				$variant(value)
+			fn from(_: $name) -> Packet {
+				$variant
 			}
 		}
 	};

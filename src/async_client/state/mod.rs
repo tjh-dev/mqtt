@@ -5,8 +5,8 @@ use self::{
 	publish::{IncomingPublishManager, OutgoingPublishManager},
 	subscriptions::SubscriptionsManager,
 };
-use crate::command::Command;
-use mqtt_core::{Disconnect, Packet, PacketType, Publish};
+use super::command::Command;
+use crate::{Disconnect, Packet, PacketType, Publish};
 use tokio::sync::{mpsc, oneshot};
 
 pub type PublishTx = mpsc::Sender<Publish>;
@@ -30,6 +30,8 @@ pub enum StateError {
 	InvalidPacket,
 
 	ProtocolError(&'static str),
+
+	DeliveryFailure(Publish),
 }
 
 impl State {
@@ -38,8 +40,8 @@ impl State {
 			Command::Publish(command) => self.outgoing_publish.handle_publish_command(command),
 			Command::PublishComplete { id } => self.incoming_publish.handle_pubcomp_command(id),
 			Command::Subscribe(command) => self.subscriptions.handle_subscribe_command(command),
+			Command::Unsubscribe(command) => self.subscriptions.handle_unsubscribe_command(command),
 			Command::Shutdown => Some(Disconnect.into()),
-			_ => None,
 		}
 	}
 
@@ -57,15 +59,15 @@ impl State {
 			Packet::PubRec(pkt) => self.outgoing_publish.handle_pubrec(pkt),
 			Packet::PubRel(pkt) => self.incoming_publish.handle_pubrel(pkt),
 			Packet::PubComp(pkt) => self.outgoing_publish.handle_pubcomp(pkt).map(|_| None),
-			Packet::SubAck(suback) => self.subscriptions.handle_suback(suback).map(|_| None),
-			Packet::PingResp(_) => Ok(None),
+			Packet::SubAck(pkt) => self.subscriptions.handle_suback(pkt).map(|_| None),
+			Packet::UnsubAck(pkt) => self.subscriptions.handle_unsuback(pkt).map(|_| None),
+			Packet::PingResp => Ok(None),
 			Packet::Connect(_)
 			| Packet::ConnAck { .. }
 			| Packet::Subscribe { .. }
 			| Packet::Unsubscribe { .. }
-			| Packet::PingReq(_)
-			| Packet::Disconnect(_) => Err(StateError::InvalidPacket),
-			_ => unimplemented!(),
+			| Packet::PingReq
+			| Packet::Disconnect => Err(StateError::InvalidPacket),
 		}
 	}
 }

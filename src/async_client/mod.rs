@@ -4,16 +4,20 @@ mod connection;
 mod state;
 mod task;
 
-pub use mqtt_core::{Error, Filter, FilterBuf, FilterError, Packet, QoS, Result};
+use crate::{Credentials, Will};
+pub use crate::{Error, Filter, FilterBuf, FilterError, Packet, QoS, Result};
 use tokio::{sync::mpsc, task::JoinHandle};
 
 #[derive(Debug)]
 pub struct Options {
 	pub host: String,
 	pub port: u16,
+	pub tls: bool,
 	pub keep_alive: u16,
 	pub clean_session: bool,
 	pub client_id: String,
+	pub credentials: Option<Credentials>,
+	pub will: Option<Will>,
 }
 
 impl Default for Options {
@@ -21,9 +25,12 @@ impl Default for Options {
 		Self {
 			host: Default::default(),
 			port: 1883,
+			tls: false,
 			keep_alive: 60,
 			clean_session: true,
 			client_id: Default::default(),
+			credentials: Default::default(),
+			will: Default::default(),
 		}
 	}
 }
@@ -41,7 +48,7 @@ impl<H: AsRef<str>> From<(H, u16)> for Options {
 
 /// Construct a new asynchronous MQTT client.
 ///
-pub fn client(options: impl Into<Options>) -> (client::Client, JoinHandle<mqtt_core::Result<()>>) {
+pub fn client(options: impl Into<Options>) -> (client::Client, JoinHandle<crate::Result<()>>) {
 	let (tx, rx) = mpsc::unbounded_channel();
 	let handle = tokio::spawn(task::client_task(options.into(), rx));
 

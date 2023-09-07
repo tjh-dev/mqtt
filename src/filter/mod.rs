@@ -1,9 +1,16 @@
+mod matches;
+pub use matches::Matches;
+
 use std::{borrow, error, fmt, ops};
 
 const LEVEL_SEPARATOR: char = '/';
 const SINGLE_LEVEL_WILDCARD: char = '+';
+const SINGLE_LEVEL_WILDCARD_STR: &str = "+";
 const MULTI_LEVEL_WILDCARD: char = '#';
+const MULTI_LEVEL_WILDCARD_STR: &str = "#";
 const WILDCARDS: [char; 2] = [SINGLE_LEVEL_WILDCARD, MULTI_LEVEL_WILDCARD];
+
+const DEFAULT: &Filter = Filter::from_static(MULTI_LEVEL_WILDCARD_STR);
 
 /// An MQTT topic filter.
 #[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -13,19 +20,6 @@ pub struct Filter(str);
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FilterBuf(String);
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Match {
-	pub exact: usize,
-	pub wildcard: usize,
-	pub multi_wildcard: usize,
-}
-
-impl Match {
-	pub fn score(&self) -> usize {
-		self.exact * 3 + self.wildcard * 2 + self.multi_wildcard
-	}
-}
-
 #[derive(Debug)]
 pub struct FilterError {
 	pub kind: ErrorKind,
@@ -34,6 +28,7 @@ pub struct FilterError {
 
 #[derive(Debug)]
 pub enum ErrorKind {
+	/// The filter is either more than 65,535 UTF-8 encoded bytes long or empty.
 	Length,
 	InvalidWildcard,
 	WildcardPosition,
@@ -112,25 +107,25 @@ impl Filter {
 	/// tuple of the number of levels matched exactly and the number of levels
 	/// matched by wildcards is returned.
 	///
-	pub fn matches_topic(&self, topic: &str) -> Option<Match> {
+	pub fn matches_topic(&self, topic: &str) -> Option<Matches> {
 		let filter_levels = self.as_str().split(LEVEL_SEPARATOR);
 		let mut topic_levels = topic.split(LEVEL_SEPARATOR);
 
-		let mut result = Match::default();
+		let mut result = Matches::default();
 
 		for filter_level in filter_levels {
 			match filter_level {
-				"#" => {
+				MULTI_LEVEL_WILDCARD_STR => {
 					let matches = topic_levels.by_ref().count();
 					result.multi_wildcard = (matches != 0).then_some(matches)?;
 					break;
 				}
-				"+" => {
+				SINGLE_LEVEL_WILDCARD_STR => {
 					topic_levels.next()?;
 					result.wildcard += 1;
 				}
-				exact => {
-					if !topic_levels.next().map_or(false, |t| t == exact) {
+				exact_match => {
+					if !topic_levels.next().map_or(false, |t| t == exact_match) {
 						return None;
 					}
 					result.exact += 1;
@@ -142,18 +137,23 @@ impl Filter {
 		(topic_levels.count() == 0).then_some(result)
 	}
 
+	/// Returns the length of the filter in bytes when encoded as UTF-8.
 	#[inline]
 	pub fn len(&self) -> usize {
 		let Self(inner) = self;
 		inner.len()
 	}
 
+	/// Returns `true` if the filter has length of zero bytes.
+	///
+	/// This should *always* be false.
 	#[inline]
 	pub fn is_empty(&self) -> bool {
 		let Self(inner) = self;
 		inner.is_empty()
 	}
 
+	/// Returns the inner filter.
 	#[inline]
 	pub fn as_str(&self) -> &str {
 		let Self(inner) = self;
@@ -165,20 +165,30 @@ impl Filter {
 	pub fn to_filter_buf(&self) -> FilterBuf {
 		FilterBuf::from(self)
 	}
-}
 
-impl Filter {
+	/// Returns an iterator over the levels of the filter.
+	#[inline]
+	pub fn levels(&self) -> impl Iterator<Item = &str> {
+		let Self(inner) = self;
+		inner.split(LEVEL_SEPARATOR)
+	}
+
 	#[inline]
 	pub const fn from_static(filter: &'static str) -> &'static Filter {
 		unsafe { &*(filter as *const str as *const Filter) }
 	}
 }
 
+impl Default for &Filter {
+	fn default() -> Self {
+		DEFAULT
+	}
+}
+
 impl AsRef<str> for Filter {
 	#[inline]
 	fn as_ref(&self) -> &str {
-		let Self(inner) = self;
-		inner
+		self.as_str()
 	}
 }
 
@@ -186,6 +196,14 @@ impl AsRef<Filter> for Filter {
 	#[inline]
 	fn as_ref(&self) -> &Filter {
 		self
+	}
+}
+
+impl ToOwned for Filter {
+	type Owned = FilterBuf;
+	#[inline]
+	fn to_owned(&self) -> Self::Owned {
+		self.to_filter_buf()
 	}
 }
 
@@ -198,27 +216,11 @@ impl FilterBuf {
 		Filter::new(&filter)?;
 		Ok(Self(filter))
 	}
+}
 
-	pub fn matches_topic(&self, topic: &str) -> Option<Match> {
-		Filter::matches_topic(self, topic)
-	}
-
-	#[inline]
-	pub fn len(&self) -> usize {
-		let Self(inner) = self;
-		inner.len()
-	}
-
-	#[inline]
-	pub fn is_empty(&self) -> bool {
-		let Self(inner) = self;
-		inner.is_empty()
-	}
-
-	#[inline]
-	pub fn as_str(&self) -> &str {
-		let Self(inner) = self;
-		inner
+impl Default for FilterBuf {
+	fn default() -> Self {
+		DEFAULT.to_owned()
 	}
 }
 
@@ -253,19 +255,9 @@ impl AsRef<Filter> for FilterBuf {
 	}
 }
 
-impl ToOwned for Filter {
-	type Owned = FilterBuf;
-	#[inline]
-	fn to_owned(&self) -> Self::Owned {
-		self.to_filter_buf()
-	}
-}
-
 #[cfg(test)]
 mod tests {
-	use crate::filter::Match;
-
-	use super::Filter;
+	use super::{Filter, Matches};
 
 	#[test]
 	fn parses_filters() {
@@ -289,7 +281,7 @@ mod tests {
 		assert_eq!(filter.matches_topic("a/b"), None);
 		assert_eq!(
 			filter.matches_topic("a/b/c"),
-			Some(Match {
+			Some(Matches {
 				exact: 2,
 				wildcard: 0,
 				multi_wildcard: 1
@@ -297,7 +289,7 @@ mod tests {
 		);
 		assert_eq!(
 			filter.matches_topic("a/b/c/d"),
-			Some(Match {
+			Some(Matches {
 				exact: 2,
 				wildcard: 0,
 				multi_wildcard: 2
@@ -310,7 +302,7 @@ mod tests {
 		assert_eq!(filter.matches_topic("a/b/cd/e"), None);
 		assert_eq!(
 			filter.matches_topic("//c//"),
-			Some(Match {
+			Some(Matches {
 				exact: 1,
 				wildcard: 2,
 				multi_wildcard: 2

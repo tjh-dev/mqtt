@@ -1,7 +1,7 @@
-use crate::command::{Command, CommandTx, PublishCommand, SubscribeCommand};
+use super::command::{Command, CommandTx, PublishCommand, SubscribeCommand, UnsubscribeCommand};
+use crate::{FilterBuf, QoS};
 use bytes::Bytes;
 use core::fmt;
-use mqtt_core::{FilterBuf, QoS};
 use tokio::{
 	sync::{mpsc, oneshot},
 	time::Instant,
@@ -10,7 +10,7 @@ use tokio::{
 mod subscription;
 pub use subscription::{Message, Subscription};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Client {
 	tx: CommandTx,
 }
@@ -94,10 +94,37 @@ impl Client {
 		tracing::debug!("completed in {:?}", start.elapsed());
 		Ok(())
 	}
-}
 
-impl Drop for Client {
-	fn drop(&mut self) {
-		let _ = self.tx.send(Command::Shutdown);
+	#[tracing::instrument(skip(self), ret, err)]
+	pub async fn unsubscribe(&self, filters: Vec<FilterBuf>) -> Result<(), ClientError> {
+		let start = Instant::now();
+
+		let (response_tx, response_rx) = oneshot::channel();
+		self.tx
+			.send(Command::Unsubscribe(UnsubscribeCommand {
+				filters,
+				response_tx,
+			}))
+			.map_err(|_| ClientError::Disconnected)?;
+
+		response_rx.await.map_err(|_| ClientError::Disconnected)?;
+		tracing::debug!("completed in {:?}", start.elapsed());
+		Ok(())
+	}
+
+	pub async fn disconnect(self) -> Result<(), ClientError> {
+		self.tx
+			.send(Command::Shutdown)
+			.map_err(|_| ClientError::Disconnected)?;
+		Ok(())
 	}
 }
+
+// NOTE: This doesn't work, we don't want to disconnect when any clone of
+// Client is dropped.
+//
+// impl Drop for Client {
+// 	fn drop(&mut self) {
+// 		let _ = self.tx.send(Command::Shutdown);
+// 	}
+// }

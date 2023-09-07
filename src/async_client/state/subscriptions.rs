@@ -1,6 +1,6 @@
 use super::{PacketType, PublishTx, ResponseTx, StateError};
-use crate::command::SubscribeCommand;
-use mqtt_core::{FilterBuf, Packet, PacketId, QoS, SubAck, Subscribe};
+use crate::async_client::command::{SubscribeCommand, UnsubscribeCommand};
+use crate::{FilterBuf, Packet, PacketId, QoS, SubAck, Subscribe, UnsubAck, Unsubscribe};
 use std::{
 	collections::{BTreeMap, HashMap},
 	num::NonZeroU16,
@@ -13,6 +13,7 @@ pub struct SubscriptionsManager {
 
 	/// State for subcriptions requests awaiting a SubAck from the broker.
 	subscribe_state: HashMap<PacketId, SubscribeState>,
+	unsubscribe_state: HashMap<PacketId, UnsubscribeState>,
 
 	/// Active subcriptions.
 	subscriptions: BTreeMap<FilterBuf, PublishTx>,
@@ -25,11 +26,18 @@ struct SubscribeState {
 	response_tx: ResponseTx<Vec<(FilterBuf, QoS)>>,
 }
 
+#[derive(Debug)]
+struct UnsubscribeState {
+	filters: Vec<FilterBuf>,
+	response_tx: ResponseTx<()>,
+}
+
 impl Default for SubscriptionsManager {
 	fn default() -> Self {
 		Self {
-			subscribe_id: unsafe { NonZeroU16::new_unchecked(1) },
+			subscribe_id: NonZeroU16::MAX,
 			subscribe_state: Default::default(),
+			unsubscribe_state: Default::default(),
 			subscriptions: Default::default(),
 		}
 	}
@@ -55,6 +63,24 @@ impl SubscriptionsManager {
 
 		// Build the Subscribe packet
 		Some(Subscribe { id, filters }.into())
+	}
+
+	pub fn handle_unsubscribe_command(&mut self, command: UnsubscribeCommand) -> Option<Packet> {
+		let UnsubscribeCommand {
+			filters,
+			response_tx,
+		} = command;
+
+		let id = self.generate_id();
+		self.unsubscribe_state.insert(
+			id,
+			UnsubscribeState {
+				filters: filters.clone(),
+				response_tx,
+			},
+		);
+
+		Some(Unsubscribe { id, filters }.into())
 	}
 
 	pub fn handle_suback(&mut self, suback: SubAck) -> Result<(), StateError> {
@@ -101,29 +127,53 @@ impl SubscriptionsManager {
 		Ok(())
 	}
 
+	pub fn handle_unsuback(&mut self, unsuback: UnsubAck) -> Result<(), StateError> {
+		let UnsubAck { id } = unsuback;
+		let Some(unsubscribe_state) = self.unsubscribe_state.remove(&id) else {
+			return Err(StateError::Unsolicited(PacketType::UnsubAck));
+		};
+
+		let UnsubscribeState {
+			filters,
+			response_tx,
+		} = unsubscribe_state;
+
+		// Remove the filters from the active subscriptions.
+		let len = self.subscriptions.len();
+		self.subscriptions.retain(|key, _| !filters.contains(key));
+		tracing::info!(
+			"removed {} filters, remaining filters = {:?}",
+			len - self.subscriptions.len(),
+			self.subscriptions
+		);
+
+		if response_tx.send(()).is_err() {
+			tracing::warn!("response channel for Unsubscribe command closed");
+		}
+
+		Ok(())
+	}
+
 	/// Finds a channel to publish messages for `topic` to.
 	pub fn find_publish_channel(&self, topic: &str) -> Option<&PublishTx> {
 		self.subscriptions
 			.iter()
 			.filter_map(|(filter, channel)| {
-				let mat = filter.matches_topic(topic)?;
-				Some((mat.score(), channel))
+				filter.matches_topic(topic).map(|score| (score, channel))
 			})
 			.max_by_key(|(score, _)| *score)
 			.map(|(_, channel)| channel)
 	}
 
 	/// Generates a new, non-zero packet ID.
-	///
-	/// TODO: This does not currently verify that the packet ID isn't already in
-	/// use.
-	#[inline(always)]
+	#[inline]
 	fn generate_id(&mut self) -> PacketId {
-		let current = self.subscribe_id.get();
-		self.subscribe_id = self
-			.subscribe_id
-			.checked_add(1)
-			.unwrap_or(unsafe { NonZeroU16::new_unchecked(1) });
-		current
+		loop {
+			self.subscribe_id = self.subscribe_id.checked_add(1).unwrap_or(NonZeroU16::MIN);
+			if !self.subscribe_state.contains_key(&self.subscribe_id) {
+				break;
+			}
+		}
+		self.subscribe_id
 	}
 }

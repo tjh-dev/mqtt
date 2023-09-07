@@ -1,5 +1,5 @@
+use crate::Packet;
 use bytes::{Buf, BytesMut};
-use mqtt_core::Packet;
 use std::io::Cursor;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
@@ -17,8 +17,8 @@ impl<T> Connection<T> {
 		}
 	}
 
-	fn parse_packet(&mut self) -> Result<Option<Packet>, mqtt_core::PacketError> {
-		use mqtt_core::PacketError::Incomplete;
+	fn parse_packet(&mut self) -> Result<Option<Packet>, crate::PacketError> {
+		use crate::PacketError::Incomplete;
 
 		let mut buf = Cursor::new(&self.buffer[..]);
 		match Packet::check(&mut buf) {
@@ -38,7 +38,7 @@ impl<T> Connection<T> {
 
 impl<T: AsyncRead + Unpin> Connection<T> {
 	/// Read a single [`Packet`] from the underlying stream.
-	pub async fn read_packet(&mut self) -> mqtt_core::Result<Option<Packet>> {
+	pub async fn read_packet(&mut self) -> crate::Result<Option<Packet>> {
 		loop {
 			// Attempt to parse a packet from the buffered data.
 			if let Some(packet) = self.parse_packet()? {
@@ -64,7 +64,7 @@ impl<T: AsyncRead + Unpin> Connection<T> {
 }
 
 impl<T: AsyncWrite + Unpin> Connection<T> {
-	pub async fn write_packet(&mut self, packet: &Packet) -> mqtt_core::Result<()> {
+	pub async fn write_packet(&mut self, packet: &Packet) -> crate::Result<()> {
 		let mut buf = BytesMut::new();
 		packet.serialize_to_bytes(&mut buf).unwrap();
 		tracing::trace!("serialized to {:02x?}", &buf[..]);
@@ -76,7 +76,7 @@ impl<T: AsyncWrite + Unpin> Connection<T> {
 		Ok(())
 	}
 
-	pub async fn flush(&mut self) -> mqtt_core::Result<()> {
+	pub async fn flush(&mut self) -> crate::Result<()> {
 		self.stream.flush().await?;
 		Ok(())
 	}

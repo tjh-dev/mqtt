@@ -1,41 +1,51 @@
 use clap::{Parser, Subcommand, ValueEnum};
-use mqtt_async::{FilterBuf, Options, QoS};
-use std::{io::stdin, process, str::from_utf8};
+use tjh_mqtt::{async_client::Options, FilterBuf, QoS};
+use std::{io::stdin, process, str::from_utf8, time::Duration};
+use tokio::{io, signal, task::JoinHandle};
 use tracing::subscriber::SetGlobalDefaultError;
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 
+const EXIT_TIMEOUT: Duration = Duration::from_secs(5);
+
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> mqtt_async::Result<()> {
+async fn main() -> tjh_mqtt::Result<()> {
 	setup_tracing()?;
 
 	let arguments = Arguments::parse();
-	let Arguments {
-		command,
-		host,
-		port,
-		id,
-		keep_alive,
-		disable_clean_session,
-		qos,
-	} = arguments;
-
-	let options = Options {
-		host,
-		port,
-		keep_alive,
-		clean_session: !disable_clean_session,
-		client_id: id.unwrap_or_else(|| build_client_id(!disable_clean_session)),
-	};
+	let options: Options = (&arguments).into();
+	let Arguments { command, qos, .. } = arguments;
 
 	// Create the MQTT client.
-	let (client, handle) = mqtt_async::client(options);
+	let (client, handle) = tjh_mqtt::async_client::client(options);
 
 	match command {
-		Commands::Sub { topic, .. } => {
+		Commands::Sub { topics, .. } => {
+			// Convert the topics into a filters.
+			let mut filters = Vec::with_capacity(topics.len());
+			for topic in topics {
+				filters.push(FilterBuf::new(topic)?);
+			}
+
 			// Create a subscription to the provided topic
 			let mut subscription = client
-				.subscribe(vec![(FilterBuf::new(topic)?, qos.into())])
+				.subscribe(filters.iter().cloned().map(|f| (f, qos.into())).collect())
 				.await?;
+
+			let signal_handler: JoinHandle<io::Result<()>> = {
+				let client = client.clone();
+				tokio::spawn(async move {
+					signal::ctrl_c().await?;
+					let timeout = tokio::time::sleep(EXIT_TIMEOUT);
+					tokio::select! {
+						_ = timeout => {
+							tracing::warn!("Unsubscribe command timed-out, exiting");
+							process::exit(1);
+						}
+						_ = client.unsubscribe(filters) => {}
+					};
+					Ok(())
+				})
+			};
 
 			// Receive messages ... forever.
 			while let Some(message) = subscription.recv().await {
@@ -46,8 +56,7 @@ async fn main() -> mqtt_async::Result<()> {
 				);
 			}
 
-			// Dropping the subscription will cause the topic to be unsubscribed.
-			drop(subscription);
+			signal_handler.await??;
 		}
 		Commands::Pub {
 			count,
@@ -84,7 +93,7 @@ async fn main() -> mqtt_async::Result<()> {
 		}
 	}
 
-	drop(client);
+	client.disconnect().await?;
 	handle.await??;
 
 	Ok(())
@@ -103,6 +112,32 @@ fn setup_tracing() -> Result<(), SetGlobalDefaultError> {
 		.finish();
 
 	tracing::subscriber::set_global_default(subscriber)
+}
+
+impl From<&Arguments> for Options {
+	fn from(value: &Arguments) -> Self {
+		let Arguments {
+			host,
+			port,
+			tls,
+			id,
+			keep_alive,
+			disable_clean_session,
+			..
+		} = value;
+
+		Options {
+			host: host.clone(),
+			port: (*port).unwrap_or(if *tls { 8883 } else { 1883 }),
+			tls: *tls,
+			keep_alive: *keep_alive,
+			clean_session: !disable_clean_session,
+			client_id: id
+				.clone()
+				.unwrap_or_else(|| build_client_id(!disable_clean_session)),
+			..Default::default()
+		}
+	}
 }
 
 fn build_client_id(clean_session: bool) -> String {
@@ -133,8 +168,8 @@ struct Arguments {
 	)]
 	host: String,
 
-	#[arg(long, short, global = true, default_value = "1883", env = "MQTT_PORT")]
-	port: u16,
+	#[arg(long, short, global = true, env = "MQTT_PORT")]
+	port: Option<u16>,
 
 	/// ID to use for this client.
 	#[arg(long, short = 'i', global = true, env = "MQTT_ID")]
@@ -148,8 +183,17 @@ struct Arguments {
 	#[arg(short = 'c', global = true)]
 	disable_clean_session: bool,
 
-	#[arg(long, value_enum, default_value = "qos0", rename_all = "lower")]
+	#[arg(
+		long,
+		value_enum,
+		global = true,
+		default_value = "qos0",
+		rename_all = "lower"
+	)]
 	qos: InputQoS,
+
+	#[arg(long, global = true)]
+	tls: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -160,7 +204,7 @@ enum Commands {
 		host: String,
 
 		#[arg(from_global)]
-		port: u16,
+		port: Option<u16>,
 
 		#[arg(from_global)]
 		id: Option<String>,
@@ -171,15 +215,21 @@ enum Commands {
 		#[arg(from_global)]
 		keep_alive: u16,
 
+		#[arg(from_global)]
+		qos: InputQoS,
+
+		#[arg(from_global)]
+		tls: bool,
+
 		#[clap(default_value = "#")]
-		topic: String,
+		topics: Vec<String>,
 	},
 	Pub {
 		#[arg(from_global)]
 		host: String,
 
 		#[arg(from_global)]
-		port: u16,
+		port: Option<u16>,
 
 		#[arg(from_global)]
 		id: Option<String>,
@@ -187,10 +237,15 @@ enum Commands {
 		#[arg(from_global)]
 		disable_clean_session: bool,
 
+		#[arg(from_global)]
+		qos: InputQoS,
+
+		#[arg(from_global)]
+		tls: bool,
+
 		#[arg(long, short = 'C')]
 		count: Option<usize>,
 
-		#[arg(default_value = "#")]
 		topic: String,
 
 		payload: Option<String>,

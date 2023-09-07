@@ -1,5 +1,5 @@
+use crate::{FilterBuf, PacketId, Publish, QoS};
 use bytes::Bytes;
-use mqtt_core::{FilterBuf, Publish, QoS};
 use tokio::sync::{
 	mpsc::{self, UnboundedReceiver, UnboundedSender},
 	oneshot,
@@ -12,13 +12,8 @@ pub type CommandRx = UnboundedReceiver<Command>;
 pub enum Command {
 	Publish(PublishCommand),
 	Subscribe(SubscribeCommand),
-	Unsubscribe {
-		filters: Vec<FilterBuf>,
-		response_tx: oneshot::Sender<()>,
-	},
-	PublishComplete {
-		id: u16,
-	},
+	Unsubscribe(UnsubscribeCommand),
+	PublishComplete { id: PacketId },
 	Shutdown,
 }
 
@@ -36,4 +31,10 @@ pub struct SubscribeCommand {
 	pub filters: Vec<(FilterBuf, QoS)>,
 	pub publish_tx: mpsc::Sender<Publish>,
 	pub response_tx: oneshot::Sender<Vec<(FilterBuf, QoS)>>,
+}
+
+#[derive(Debug)]
+pub struct UnsubscribeCommand {
+	pub filters: Vec<FilterBuf>,
+	pub response_tx: oneshot::Sender<()>,
 }

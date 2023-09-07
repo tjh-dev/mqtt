@@ -1,10 +1,11 @@
 use super::{subscriptions::SubscriptionsManager, ResponseTx, StateError};
-use crate::command::PublishCommand;
-use mqtt_core::{Packet, PacketId, PacketType, PubAck, PubComp, PubRec, PubRel, Publish, QoS};
+use crate::async_client::command::PublishCommand;
+use crate::{Packet, PacketId, PacketType, PubAck, PubComp, PubRec, PubRel, Publish, QoS};
 use std::{
 	collections::{HashMap, HashSet},
 	num::NonZeroU16,
 };
+use tokio::sync::mpsc::error::TrySendError;
 
 #[derive(Debug, Default)]
 pub struct IncomingPublishManager {
@@ -55,6 +56,15 @@ impl IncomingPublishManager {
 			let result = channel.try_send(publish);
 
 			match (qos, id, result) {
+				(_, _, Err(TrySendError::Closed(publish))) => {
+					tracing::error!("failed to deliver Publish packet {publish:?}");
+					unimplemented!();
+				}
+				(QoS::AtMostOnce, Some(_), _)
+				| (QoS::AtLeastOnce, None, _)
+				| (QoS::ExactlyOnce, None, _) => {
+					unreachable!();
+				}
 				(QoS::AtMostOnce, None, _) => {
 					// We've received the Publish packet, found a suitable destination,
 					// and *tried* to deliver it.
@@ -67,10 +77,6 @@ impl IncomingPublishManager {
 					// Send a PubAck.
 					Ok(Some(PubAck { id }.into()))
 				}
-				(QoS::AtLeastOnce, Some(_), Err(e)) => {
-					tracing::error!("failed to deliver Publish packet, {e:?}");
-					Ok(None)
-				}
 				(QoS::ExactlyOnce, Some(id), Ok(_)) => {
 					// We've recevied the Publish packet, found a suitable destination,
 					// and successfully delivered it.
@@ -79,11 +85,11 @@ impl IncomingPublishManager {
 					self.awaiting_pubrel.insert(id);
 					Ok(Some(PubRec { id }.into()))
 				}
-				(QoS::ExactlyOnce, Some(_), Err(e)) => {
-					tracing::error!("failed to deliver Publish packet, {e:?}");
-					Ok(None)
+				(QoS::AtLeastOnce, Some(_), Err(TrySendError::Full(publish)))
+				| (QoS::ExactlyOnce, Some(_), Err(TrySendError::Full(publish))) => {
+					tracing::error!("failed to deliver Publish packet, channel full, {publish:?}");
+					Err(StateError::DeliveryFailure(publish))
 				}
-				_ => unreachable!(),
 			}
 		} else {
 			tracing::error!("failed to acquire destination for {publish:?}");
@@ -111,7 +117,7 @@ impl IncomingPublishManager {
 impl Default for OutgoingPublishManager {
 	fn default() -> Self {
 		Self {
-			publish_id: unsafe { NonZeroU16::new_unchecked(1) },
+			publish_id: NonZeroU16::MAX,
 			awaiting_puback: Default::default(),
 			awaiting_pubrec: Default::default(),
 			awaiting_pubcomp: Default::default(),
@@ -177,7 +183,7 @@ impl OutgoingPublishManager {
 		let tx = self
 			.awaiting_puback
 			.remove(&puback.id)
-			.ok_or(StateError::Unsolicited(mqtt_core::PacketType::PubAck))?;
+			.ok_or(StateError::Unsolicited(crate::PacketType::PubAck))?;
 
 		let _ = tx.send(());
 		Ok(())
@@ -187,7 +193,7 @@ impl OutgoingPublishManager {
 		let tx = self
 			.awaiting_pubrec
 			.remove(&pubrec.id)
-			.ok_or(StateError::Unsolicited(mqtt_core::PacketType::PubAck))?;
+			.ok_or(StateError::Unsolicited(crate::PacketType::PubAck))?;
 
 		self.awaiting_pubcomp.insert(pubrec.id, tx);
 		Ok(Some(PubRel { id: pubrec.id }.into()))
@@ -199,23 +205,25 @@ impl OutgoingPublishManager {
 		let tx = self
 			.awaiting_pubcomp
 			.remove(&pubcomp.id)
-			.ok_or(StateError::Unsolicited(mqtt_core::PacketType::PubAck))?;
+			.ok_or(StateError::Unsolicited(crate::PacketType::PubAck))?;
 
 		let _ = tx.send(());
 		Ok(())
 	}
 
 	/// Generates a new, non-zero packet ID.
-	///
-	/// TODO: This does not currently verify that the packet ID isn't already in
-	/// use.
-	#[inline(always)]
+	#[inline]
 	fn generate_id(&mut self) -> PacketId {
-		let current = self.publish_id.get();
-		self.publish_id = self
-			.publish_id
-			.checked_add(1)
-			.unwrap_or(unsafe { NonZeroU16::new_unchecked(1) });
-		current
+		loop {
+			self.publish_id = self.publish_id.checked_add(1).unwrap_or(NonZeroU16::MIN);
+
+			// We don't need to check `awaiting_pubcomp`
+			if !(self.awaiting_puback.contains_key(&self.publish_id)
+				| self.awaiting_pubrec.contains_key(&self.publish_id))
+			{
+				break;
+			}
+		}
+		self.publish_id
 	}
 }
