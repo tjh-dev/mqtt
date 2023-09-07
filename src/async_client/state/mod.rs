@@ -7,11 +7,10 @@ use self::{
 };
 use super::command::Command;
 use crate::{Disconnect, Packet, PacketType, Publish};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 
 pub type PublishTx = mpsc::Sender<Publish>;
 pub type PublishRx = mpsc::Receiver<Publish>;
-type ResponseTx<T> = oneshot::Sender<T>;
 
 /// Mantains Client state after ConnAck has been recevied.
 ///
