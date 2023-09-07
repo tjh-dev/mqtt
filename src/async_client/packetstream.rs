@@ -4,12 +4,13 @@ use std::io::Cursor;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 #[derive(Debug)]
-pub struct Connection<T> {
+pub struct PacketStream<T> {
 	stream: T,
 	buffer: BytesMut,
 }
 
-impl<T> Connection<T> {
+impl<T> PacketStream<T> {
+	/// Create a new `PacketStream` with the given stream and buffer length.
 	pub fn new(stream: T, len: usize) -> Self {
 		Self {
 			stream,
@@ -17,6 +18,7 @@ impl<T> Connection<T> {
 		}
 	}
 
+	/// Attempt to parse a single [`Packet`] from the buffered data.
 	fn parse_packet(&mut self) -> Result<Option<Packet>, ParseError> {
 		use ParseError::Incomplete;
 
@@ -36,7 +38,7 @@ impl<T> Connection<T> {
 	}
 }
 
-impl<T: AsyncRead + Unpin> Connection<T> {
+impl<T: AsyncRead + Unpin> PacketStream<T> {
 	/// Read a single [`Packet`] from the underlying stream.
 	pub async fn read_packet(&mut self) -> crate::Result<Option<Packet>> {
 		loop {
@@ -63,11 +65,11 @@ impl<T: AsyncRead + Unpin> Connection<T> {
 	}
 }
 
-impl<T: AsyncWrite + Unpin> Connection<T> {
+impl<T: AsyncWrite + Unpin> PacketStream<T> {
+	/// Write a single [`Packet`] to the underlying stream.
 	pub async fn write_packet(&mut self, packet: &Packet) -> crate::Result<()> {
 		let mut buf = BytesMut::new();
 		packet.serialize_to_bytes(&mut buf).unwrap();
-		tracing::trace!("serialized to {:02x?}", &buf[..]);
 
 		self.stream.write_all(&buf).await?;
 		self.stream.flush().await?;
@@ -76,6 +78,7 @@ impl<T: AsyncWrite + Unpin> Connection<T> {
 		Ok(())
 	}
 
+	/// Flush the underlying stream.
 	pub async fn flush(&mut self) -> crate::Result<()> {
 		self.stream.flush().await?;
 		Ok(())

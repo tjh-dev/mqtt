@@ -1,6 +1,6 @@
 use crate::async_client::{
 	command::{Command, CommandRx},
-	connection::Connection,
+	packetstream::PacketStream,
 	state::State,
 	Options,
 };
@@ -62,7 +62,7 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> crate::Result<(
 				let dnsname = ServerName::try_from(options.host.as_str()).unwrap();
 
 				let stream = connector.connect(dnsname, stream).await?;
-				let mut connection = Connection::new(stream, 8 * 1024);
+				let mut connection = PacketStream::new(stream, 8 * 1024);
 
 				connected_task(
 					&mut client_state,
@@ -79,7 +79,7 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> crate::Result<(
 				panic!("TLS not supported");
 			}
 			false => {
-				let mut connection = Connection::new(stream, 8 * 1024);
+				let mut connection = PacketStream::new(stream, 8 * 1024);
 				connected_task(
 					&mut client_state,
 					&mut holdoff,
@@ -102,7 +102,7 @@ async fn connected_task<T: AsyncRead + AsyncWrite + Unpin>(
 	client_state: &mut State,
 	holdoff: &mut HoldOff,
 	connect: &Packet,
-	connection: &mut Connection<T>,
+	connection: &mut PacketStream<T>,
 	keep_alive_duration: time::Duration,
 	rx: &mut CommandRx,
 ) -> crate::Result<bool> {
@@ -181,7 +181,7 @@ enum ConnAckResult {
 }
 
 async fn wait_for_connack<T: AsyncRead + Unpin>(
-	connection: &mut Connection<T>,
+	connection: &mut PacketStream<T>,
 	timeout: time::Duration,
 ) -> crate::Result<ConnAckResult> {
 	let mut timeout = time::interval_at(Instant::now() + timeout, timeout);

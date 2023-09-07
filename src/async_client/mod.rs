@@ -1,6 +1,6 @@
 mod client;
 mod command;
-mod connection;
+mod packetstream;
 mod state;
 mod task;
 
