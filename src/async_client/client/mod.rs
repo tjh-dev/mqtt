@@ -23,29 +23,83 @@ impl Client {
 		Self { tx }
 	}
 
+	/// Sends a [`Subscribe`] packet with the requested filters to the Server.
+	///
+	/// Upon receiving a corresponding [`SubAck`], the client will return a [`Subscription`] which will
+	/// yield any packets received matching the filters. The subscription will buffer upto the provided
+	/// number of messages.
+	///
+	/// # Example
+	///
+	/// ```no_run
+	/// # tokio_test::block_on(async {
+	/// use tjh_mqtt::{FilterBuf, QoS::AtMostOnce, async_client};
+	/// let (client, handle) = async_client::client(("localhost", 1883));
+	///
+	/// let filter = FilterBuf::new("a/b").unwrap();
+	/// let mut subscription = client.subscribe(vec![(filter, AtMostOnce)], 8).await.unwrap();
+	/// while let Some(message) = subscription.recv().await {
+	///	    println!(
+	///	        "{}: {}",
+	///	        message.topic,
+	///	        from_utf8(&message.payload).unwrap_or_default()
+	///	    );
+	/// }
+	/// # })
+	/// ```
+	///
+	/// [`Subscribe`]: crate::packets::Subscribe
+	/// [`SubAck`]: crate::packets::SubAck
 	#[tracing::instrument(skip(self), ret, err)]
 	pub async fn subscribe(
 		&self,
 		filters: Vec<(FilterBuf, QoS)>,
-		len: usize,
+		buffer: usize,
 	) -> Result<Subscription, ClientTaskClosed> {
 		let start = Instant::now();
 
 		let (response_tx, response_rx) = oneshot::channel();
-		let (publish_tx, publish_rx) = mpsc::channel(len);
+		let (publish_tx, publish_rx) = mpsc::channel(buffer);
 		self.tx.send(Command::Subscribe(SubscribeCommand {
-			filters: filters.clone(),
+			filters,
 			publish_tx,
 			response_tx,
 		}))?;
 
-		let result = response_rx.await?;
-		let subscription = Subscription::new(result, publish_rx, self.tx.clone());
+		let subscribed_filters = response_rx.await?;
+		let subscription = Subscription::new(subscribed_filters, publish_rx, self.tx.clone());
 
 		tracing::debug!("completed in {:?}", start.elapsed());
 		Ok(subscription)
 	}
 
+	/// Sends a [`Publish`] packet with the provided topic and payload to the Server.
+	///
+	/// With a QoS of [`AtMostOnce`], the call will return as soon as the packet has been written to the
+	/// transport stream; with [`AtLeastOnce`] the call will return when the corresponding [`PubAck`] has
+	/// been received from the Server; and with [`ExactlyOnce`] the call will return when the corresponding
+	/// [`PubComp`] has been received.
+	///
+	/// # Example
+	///
+	/// ```no_run
+	/// # tokio_test::block_on(async {
+	/// use tjh_mqtt::{QoS::AtMostOnce, async_client};
+	/// let (client, handle) = async_client::client(("localhost", 1883));
+	///
+	/// // Publish a message.
+	/// if client.publish("a/b", "Hello, world!", AtMostOnce, false).await.is_ok() {
+	///     println!("Message published.");
+	/// }
+	/// # })
+	/// ```
+	///
+	/// [`AtMostOnce`]: crate::QoS#variant.AtMostOnce
+	/// [`AtLeastOnce`]: crate::QoS#variant.AtLeastOnce
+	/// [`ExactlyOnce`]: crate::QoS#variant.ExactlyOnce
+	/// [`Publish`]: crate::packets::Publish
+	/// [`PubAck`]: crate::packets::PubAck
+	/// [`PubComp`]: crate::packets::PubComp
 	#[tracing::instrument(skip(self), ret, err)]
 	pub async fn publish(
 		&self,
@@ -70,6 +124,11 @@ impl Client {
 		Ok(())
 	}
 
+	/// Sends an [`Unsubscribe`] packet with `filters` to the Server. On receiving a corresponding
+	/// [`UnsubAck`], the client will drop any matching filters.
+	///
+	/// [`Unsubscribe`]: crate::packets::Unsubscribe
+	/// [`UnsubAck`]: crate::packets::UnsubAck
 	#[tracing::instrument(skip(self), ret, err)]
 	pub async fn unsubscribe(&self, filters: Vec<FilterBuf>) -> Result<(), ClientTaskClosed> {
 		let start = Instant::now();
@@ -85,6 +144,11 @@ impl Client {
 		Ok(())
 	}
 
+	/// Sends a [`Disconnect`] packet to the Server.
+	///
+	/// A compliant Server must immediately close the connection.
+	///
+	/// [`Disconnect`]: crate::packets::Disconnect
 	pub async fn disconnect(self) -> Result<(), ClientTaskClosed> {
 		self.tx.send(Command::Shutdown)?;
 		Ok(())

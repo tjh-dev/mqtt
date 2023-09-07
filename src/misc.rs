@@ -24,6 +24,9 @@ impl TryFrom<u8> for QoS {
 	}
 }
 
+/// Client credentials
+///
+/// Note that is not possible to set a password without also setting a username.
 #[derive(Debug)]
 pub struct Credentials {
 	pub username: String,
@@ -66,10 +69,22 @@ impl From<(&str, &str)> for Credentials {
 	}
 }
 
+/// Will Message
+///
+/// The will message is set by the Client when it connects to the Server. If the Client disconnects abnormally,
+/// the Server publishes the will message to the topic on behalf of the Client. The will message MUST be
+/// published with the Will QoS and Retain flags as specified.
 #[derive(Debug)]
 pub struct Will {
+	/// The topic to publish the will message to.
 	pub topic: String,
+
+	/// The message to publish as the will.
 	pub payload: Bytes,
+
+	/// The quality of service to publish the will message at.
 	pub qos: QoS,
+
+	/// Whether or not the will message should be retained.
 	pub retain: bool,
 }
