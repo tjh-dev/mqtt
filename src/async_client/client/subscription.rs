@@ -1,4 +1,4 @@
-use super::ClientError;
+use super::ClientTaskClosed;
 use crate::async_client::{
 	command::{Command, CommandTx, UnsubscribeCommand},
 	state::PublishRx,
@@ -72,7 +72,7 @@ impl Subscription {
 	/// This will send an 'Unsubscribe' packet to the broker, and won't return
 	/// until a corresponding 'UnsubAck' packet has been recevied.
 	#[tracing::instrument(ret, err)]
-	pub async fn unsubscribe(mut self) -> Result<(), ClientError> {
+	pub async fn unsubscribe(mut self) -> Result<(), ClientTaskClosed> {
 		let (response_tx, response_rx) = oneshot::channel();
 
 		// Drain the filters from the Subscription. This will eliminate copying
