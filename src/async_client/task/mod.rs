@@ -96,16 +96,22 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> crate::Result<(
 
 		// Send the Connect packet.
 		connection.write_packet(&connect).await?;
-		match wait_for_connack(&mut connection, keep_alive_duration).await? {
-			ConnAckResult::Continue { session_present } => {
-				tracing::debug!("connected! session_present = {session_present}");
-				holdoff.reset();
-			}
-			ConnAckResult::Timeout => {
-				tracing::error!("timeout waiting for ConnAck");
-				continue;
-			}
-		}
+		let mut resubscribe_packet =
+			match wait_for_connack(&mut connection, keep_alive_duration).await? {
+				ConnAckResult::Continue { session_present } => {
+					tracing::debug!("connected! session_present = {session_present}");
+					// if let Some((packet, response_rx)) = client_state.connected(session_present) {
+					// 	connection.write_packet(&packet).await?;
+					// 	response_rx.await?;
+					// }
+					holdoff.reset();
+					client_state.connected(session_present)
+				}
+				ConnAckResult::Timeout => {
+					tracing::error!("timeout waiting for ConnAck");
+					continue;
+				}
+			};
 
 		let mut pingreq_sent: Option<Instant> = None;
 
@@ -114,6 +120,23 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> crate::Result<(
 		let _ = keep_alive.tick().await;
 
 		loop {
+			if let Some((resubscribe_packet, subscribe_response)) = resubscribe_packet.take() {
+				connection.write_packet(&resubscribe_packet).await?;
+				let Ok(Some(Packet::SubAck(suback))) = connection.read_packet().await else {
+					tracing::error!("failed to read SubAck");
+					holdoff.increase_with(|delay| delay * 4);
+					break
+				};
+				if client_state
+					.process_incoming_packet(Packet::SubAck(suback))
+					.await
+					.is_err()
+				{
+					return Ok(());
+				};
+				subscribe_response.await?;
+			}
+
 			tokio::select! {
 				Some(command) = rx.recv() => {
 					tracing::debug!(?command);
@@ -136,9 +159,9 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> crate::Result<(
 						break
 					};
 
-					tracing::trace!(packet = ?packet, "recevied from Server");
+					tracing::trace!(packet = ?packet, "received from Server");
 
-					match client_state.process_incoming_packet(packet) {
+					match client_state.process_incoming_packet(packet).await {
 						Err(error) => {
 							tracing::error!("{error:?}");
 							break

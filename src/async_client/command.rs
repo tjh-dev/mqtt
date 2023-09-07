@@ -8,6 +8,7 @@ use tokio::sync::{
 
 /// Command responses are sent back to the caller via oneshot::Sender.
 pub type ResponseTx<T> = oneshot::Sender<T>;
+pub type ResponseRx<T> = oneshot::Receiver<T>;
 
 pub type CommandTx = UnboundedSender<Command>;
 pub type CommandRx = UnboundedReceiver<Command>;

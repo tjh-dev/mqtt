@@ -4,11 +4,12 @@ use crate::{
 	packets::{PubAck, PubComp, PubRec, PubRel, Publish},
 	Packet, PacketId, PacketType, QoS,
 };
+use std::time::Duration;
 use std::{
 	collections::{HashMap, HashSet},
 	num::NonZeroU16,
 };
-use tokio::sync::mpsc::error::TrySendError;
+use tokio::sync::mpsc::error::SendTimeoutError;
 
 #[derive(Debug, Default)]
 pub struct IncomingPublishManager {
@@ -42,7 +43,7 @@ impl IncomingPublishManager {
 		}
 	}
 
-	pub fn handle_publish(
+	pub async fn handle_publish(
 		&mut self,
 		subscriptions: &SubscriptionsManager,
 		publish: Publish,
@@ -50,16 +51,17 @@ impl IncomingPublishManager {
 		let channel = subscriptions.find_publish_channel(publish.topic());
 
 		if let Some(channel) = channel {
-			tracing::info!("found channel for {}", publish.topic());
-
 			let qos = publish.qos();
 			let id = publish.id();
 
-			// Attempt to deliver the Publish packet.
-			let result = channel.try_send(publish);
+			// Attempt to deliver the Publish packet within the timeout.
+			// TODO: Make this timeout configurable.
+			let result = channel
+				.send_timeout(publish, Duration::from_millis(250))
+				.await;
 
 			match (qos, id, result) {
-				(_, _, Err(TrySendError::Closed(publish))) => {
+				(_, _, Err(SendTimeoutError::Closed(publish))) => {
 					tracing::error!("failed to deliver Publish packet {publish:?}");
 					unimplemented!();
 				}
@@ -68,9 +70,13 @@ impl IncomingPublishManager {
 				| (QoS::ExactlyOnce, None, _) => {
 					unreachable!();
 				}
-				(QoS::AtMostOnce, None, _) => {
+				(QoS::AtMostOnce, None, Ok(_)) => {
 					// We've received the Publish packet, found a suitable destination,
 					// and *tried* to deliver it.
+					Ok(None)
+				}
+				(QoS::AtMostOnce, None, Err(_)) => {
+					tracing::error!("failed to deliver Publish packet, channel full");
 					Ok(None)
 				}
 				(QoS::AtLeastOnce, Some(id), Ok(_)) => {
@@ -88,8 +94,8 @@ impl IncomingPublishManager {
 					self.awaiting_pubrel.insert(id);
 					Ok(Some(PubRec { id }.into()))
 				}
-				(QoS::AtLeastOnce, Some(_), Err(TrySendError::Full(publish)))
-				| (QoS::ExactlyOnce, Some(_), Err(TrySendError::Full(publish))) => {
+				(QoS::AtLeastOnce, Some(_), Err(SendTimeoutError::Timeout(publish)))
+				| (QoS::ExactlyOnce, Some(_), Err(SendTimeoutError::Timeout(publish))) => {
 					tracing::error!("failed to deliver Publish packet, channel full, {publish:?}");
 					Err(StateError::DeliveryFailure(publish))
 				}

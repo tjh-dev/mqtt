@@ -77,10 +77,4 @@ impl<T: AsyncWrite + Unpin> PacketStream<T> {
 		tracing::debug!("wrote {packet:?} to stream");
 		Ok(())
 	}
-
-	/// Flush the underlying stream.
-	pub async fn flush(&mut self) -> crate::Result<()> {
-		self.stream.flush().await?;
-		Ok(())
-	}
 }

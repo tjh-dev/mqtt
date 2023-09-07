@@ -28,7 +28,10 @@ async fn main() -> tjh_mqtt::Result<()> {
 
 			// Create a subscription to the provided topic
 			let mut subscription = client
-				.subscribe(filters.iter().cloned().map(|f| (f, qos.into())).collect())
+				.subscribe(
+					filters.iter().cloned().map(|f| (f, qos.into())).collect(),
+					1,
+				)
 				.await?;
 
 			let signal_handler: JoinHandle<io::Result<()>> = {
@@ -54,6 +57,8 @@ async fn main() -> tjh_mqtt::Result<()> {
 					message.topic,
 					from_utf8(&message.payload).unwrap_or_default()
 				);
+
+				// tokio::time::sleep(Duration::from_millis(100)).await;
 			}
 
 			signal_handler.await??;

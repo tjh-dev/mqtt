@@ -1,3 +1,5 @@
+use tokio::time::Instant;
+
 use super::{PacketType, PublishTx, StateError};
 use crate::async_client::command::{ResponseTx, SubscribeCommand, UnsubscribeCommand};
 use crate::{
@@ -17,9 +19,10 @@ pub struct SubscriptionsManager {
 	/// State for subcriptions requests awaiting a SubAck from the broker.
 	subscribe_state: HashMap<PacketId, SubscribeState>,
 	unsubscribe_state: HashMap<PacketId, UnsubscribeState>,
+	resubscribe_state: Option<(PacketId, ResponseTx<()>)>,
 
 	/// Active subcriptions.
-	subscriptions: BTreeMap<FilterBuf, PublishTx>,
+	pub subscriptions: BTreeMap<FilterBuf, (PublishTx, QoS)>,
 }
 
 #[derive(Debug)]
@@ -41,6 +44,7 @@ impl Default for SubscriptionsManager {
 			subscribe_id: NonZeroU16::MAX,
 			subscribe_state: Default::default(),
 			unsubscribe_state: Default::default(),
+			resubscribe_state: Default::default(),
 			subscriptions: Default::default(),
 		}
 	}
@@ -88,6 +92,18 @@ impl SubscriptionsManager {
 
 	pub fn handle_suback(&mut self, suback: SubAck) -> Result<(), StateError> {
 		let SubAck { id, result } = suback;
+		// Check that this isn't a resubscribe.
+		if let Some((resub_id, channel)) = self.resubscribe_state.take() {
+			tracing::error!("Found re-subscribe packet, expected UnsubAck {{ id: {id} }}");
+			if resub_id == id {
+				if channel.send(()).is_err() {
+					tracing::warn!("response channel for resubscribe closed");
+				}
+				self.resubscribe_state = None;
+				tracing::info!("resubscribe successful");
+				return Ok(());
+			}
+		}
 		// Ascertain that we have an active subscription request for the SubAck
 		// packet ID.
 		//
@@ -111,18 +127,26 @@ impl SubscriptionsManager {
 		let successful_filters: Vec<_> = result
 			.into_iter()
 			.zip(requested_filters)
-			.filter_map(|(result_qos, (requested_filter, _))| {
+			.filter_map(|(result_qos, (requested_filter, requested_qos))| {
 				let qos = result_qos?;
-				Some((requested_filter, qos))
+				Some((requested_filter, requested_qos, qos))
 			})
 			.collect();
 
-		for (filter, _) in &successful_filters {
+		for (filter, requested_qos, _) in &successful_filters {
 			self.subscriptions
-				.insert(filter.clone(), publish_tx.clone());
+				.insert(filter.clone(), (publish_tx.clone(), *requested_qos));
 		}
 
-		if response_tx.send(successful_filters).is_err() {
+		if response_tx
+			.send(
+				successful_filters
+					.into_iter()
+					.map(|(f, _, q)| (f, q))
+					.collect(),
+			)
+			.is_err()
+		{
 			tracing::warn!("response channel for SubAck {{ id: {id} }} closed");
 		}
 
@@ -132,6 +156,7 @@ impl SubscriptionsManager {
 
 	pub fn handle_unsuback(&mut self, unsuback: UnsubAck) -> Result<(), StateError> {
 		let UnsubAck { id } = unsuback;
+
 		let Some(unsubscribe_state) = self.unsubscribe_state.remove(&id) else {
 			return Err(StateError::Unsolicited(PacketType::UnsubAck));
 		};
@@ -159,13 +184,21 @@ impl SubscriptionsManager {
 
 	/// Finds a channel to publish messages for `topic` to.
 	pub fn find_publish_channel(&self, topic: &str) -> Option<&PublishTx> {
-		self.subscriptions
+		let start = Instant::now();
+
+		let Some((filter, score, channel)) = self.subscriptions
 			.iter()
-			.filter_map(|(filter, channel)| {
-				filter.matches_topic(topic).map(|score| (score, channel))
+			.filter_map(|(filter, (channel, _))| {
+				filter.matches_topic(topic).map(|score| (filter, score.score(), channel))
 			})
-			.max_by_key(|(score, _)| *score)
-			.map(|(_, channel)| channel)
+			.max_by_key(|(_, score, _)| *score) else {
+				tracing::error!(topic = ?topic, subscriptions = ?self.subscriptions, "failed to find channel for");
+				return None;
+			};
+		let time = start.elapsed();
+
+		tracing::debug!(topic = ?topic, filter = ?filter, score = ?score, time = ?time, "found channel for");
+		Some(channel)
 	}
 
 	/// Generates a new, non-zero packet ID.
@@ -178,5 +211,22 @@ impl SubscriptionsManager {
 			}
 		}
 		self.subscribe_id
+	}
+
+	pub fn generate_resubscribe(&mut self, response_tx: ResponseTx<()>) -> Option<Packet> {
+		if !self.subscriptions.is_empty() {
+			let mut filters = Vec::new();
+			for (filter, (_, qos)) in self.subscriptions.iter() {
+				filters.push((filter.clone(), *qos));
+			}
+
+			let id = self.generate_id();
+			let packet = crate::packets::Subscribe { id, filters };
+			self.resubscribe_state = Some((id, response_tx));
+
+			Some(packet.into())
+		} else {
+			None
+		}
 	}
 }

@@ -49,11 +49,12 @@ impl Client {
 	pub async fn subscribe(
 		&self,
 		filters: Vec<(FilterBuf, QoS)>,
+		len: usize,
 	) -> Result<Subscription, ClientError> {
 		let start = Instant::now();
 
 		let (response_tx, response_rx) = oneshot::channel();
-		let (publish_tx, publish_rx) = mpsc::channel(32);
+		let (publish_tx, publish_rx) = mpsc::channel(len);
 		self.tx
 			.send(Command::Subscribe(SubscribeCommand {
 				filters: filters.clone(),
