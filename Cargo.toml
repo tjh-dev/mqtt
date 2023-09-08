@@ -34,3 +34,6 @@ tls = ["dep:tokio-rustls", "dep:webpki-roots"]
 name = "mqtt"
 path = "src/bin/mqtt.rs"
 required-features = ["cli"]
+
+[profile.release]
+strip = true
