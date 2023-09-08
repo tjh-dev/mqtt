@@ -5,6 +5,7 @@ mod filter;
 mod packet;
 mod qos;
 mod serde;
+mod topic;
 
 #[cfg(feature = "async-client")]
 pub mod async_client;
@@ -15,6 +16,7 @@ pub use self::{
 	filter::{Filter, FilterBuf, FilterError},
 	packet::{Packet, PacketType},
 	qos::{InvalidQoS, QoS},
+	topic::{InvalidTopic, Topic, TopicBuf},
 };
 
 pub type PacketId = core::num::NonZeroU16;
