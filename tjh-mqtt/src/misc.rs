@@ -76,9 +76,10 @@ impl From<(&str, &str)> for Credentials {
 
 /// Will Message
 ///
-/// The will message is set by the Client when it connects to the Server. If the Client disconnects abnormally,
-/// the Server publishes the will message to the topic on behalf of the Client. The will message MUST be
-/// published with the Will QoS and Retain flags as specified.
+/// The will message is set by the Client when it connects to the Server. If the
+/// Client disconnects abnormally, the Server publishes the will message to the
+/// topic on behalf of the Client. The will message MUST be published with the
+/// Will QoS and Retain flags as specified.
 #[derive(Debug)]
 pub struct Will {
 	/// The topic to publish the will message to.

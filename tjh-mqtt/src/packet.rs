@@ -60,8 +60,8 @@ const PINGRESP: u8 = 0xd0;
 const DISCONNECT: u8 = 0xe0;
 
 impl Packet {
-	/// Checks if a complete [`Packet`] can be decoded from `src`. If so, returns the length of the
-	/// packet.
+	/// Checks if a complete [`Packet`] can be decoded from `src`. If so,
+	/// returns the length of the packet.
 	pub fn check(src: &mut io::Cursor<&[u8]>) -> Result<u64, ParseError> {
 		let header = serde::get_u8(src)?;
 		if header == 0 || header == 0xf0 {

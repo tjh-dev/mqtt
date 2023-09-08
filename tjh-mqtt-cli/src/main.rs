@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
-use std::{io::stdin, process, str::from_utf8, time::Duration};
 use mqtt::{async_client::Options, FilterBuf, QoS};
+use std::{io::stdin, process, str::from_utf8, time::Duration};
 use tokio::{io, signal, task::JoinHandle};
 use tracing::subscriber::SetGlobalDefaultError;
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};

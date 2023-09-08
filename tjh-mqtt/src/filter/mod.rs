@@ -28,7 +28,7 @@ pub struct FilterError {
 
 #[derive(Debug)]
 pub enum ErrorKind {
-	/// The filter is either more than 65,535 UTF-8 encoded bytes long or empty.
+	/// The filter is either more than 65,535 UTF-8 encoded bytes long, or empty.
 	Length,
 	InvalidWildcard,
 	WildcardPosition,
@@ -107,7 +107,6 @@ impl Filter {
 	/// Returns `None` if the topic does not match. If `topic` does match, a
 	/// tuple of the number of levels matched exactly and the number of levels
 	/// matched by wildcards is returned.
-	///
 	pub fn matches_topic(&self, topic: &str) -> Option<Matches> {
 		let filter_levels = self.as_str().split(LEVEL_SEPARATOR);
 		let mut topic_levels = topic.split(LEVEL_SEPARATOR);
@@ -147,7 +146,7 @@ impl Filter {
 
 	/// Returns `true` if the filter has length of zero bytes.
 	///
-	/// This should *always* be false.
+	/// Empty filters are not valid, so this should *always* be `false`.
 	#[inline]
 	pub fn is_empty(&self) -> bool {
 		let Self(inner) = self;

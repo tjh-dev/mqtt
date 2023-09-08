@@ -100,10 +100,6 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> crate::Result<(
 			match wait_for_connack(&mut connection, keep_alive_duration).await? {
 				ConnAckResult::Continue { session_present } => {
 					tracing::debug!("connected! session_present = {session_present}");
-					// if let Some((packet, response_rx)) = client_state.connected(session_present) {
-					// 	connection.write_packet(&packet).await?;
-					// 	response_rx.await?;
-					// }
 					holdoff.reset();
 					client_state.connected(session_present)
 				}

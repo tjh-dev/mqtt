@@ -25,25 +25,33 @@ impl Client {
 
 	/// Sends a [`Subscribe`] packet with the requested filters to the Server.
 	///
-	/// Upon receiving a corresponding [`SubAck`], the client will return a [`Subscription`] which will
-	/// yield any packets received matching the filters. The subscription will buffer upto the provided
+	/// Upon receiving a corresponding [`SubAck`], the client will return a
+	/// [`Subscription`] which will yield any packets received matching the
+	/// filters. The subscription will buffer upto the provided
 	/// number of messages.
 	///
 	/// # Example
 	///
 	/// ```no_run
 	/// # tokio_test::block_on(async {
-	/// use tjh_mqtt::{FilterBuf, QoS::AtMostOnce, async_client};
+	/// use tjh_mqtt::{async_client, FilterBuf, QoS::AtMostOnce};
 	/// let (client, handle) = async_client::client(("localhost", 1883));
 	///
 	/// let filter = FilterBuf::new("a/b").unwrap();
-	/// let mut subscription = client.subscribe(vec![(filter, AtMostOnce)], 8).await.unwrap();
+	/// 
+	/// // Create the subscription.
+	/// let mut subscription = client
+	/// 	.subscribe(vec![(filter, AtMostOnce)], 8)
+	/// 	.await
+	/// 	.unwrap();
+	/// 
+	/// // Receive messages matching the filter.
 	/// while let Some(message) = subscription.recv().await {
-	///	    println!(
-	///	        "{}: {}",
-	///	        message.topic,
-	///	        from_utf8(&message.payload).unwrap_or_default()
-	///	    );
+	/// 	println!(
+	/// 		"{}: {}",
+	/// 		message.topic,
+	/// 		from_utf8(&message.payload).unwrap_or_default()
+	/// 	);
 	/// }
 	/// # })
 	/// ```
@@ -73,23 +81,29 @@ impl Client {
 		Ok(subscription)
 	}
 
-	/// Sends a [`Publish`] packet with the provided topic and payload to the Server.
+	/// Sends a [`Publish`] packet with the provided topic and payload to the
+	/// Server.
 	///
-	/// With a QoS of [`AtMostOnce`], the call will return as soon as the packet has been written to the
-	/// transport stream; with [`AtLeastOnce`] the call will return when the corresponding [`PubAck`] has
-	/// been received from the Server; and with [`ExactlyOnce`] the call will return when the corresponding
-	/// [`PubComp`] has been received.
+	/// With a QoS of [`AtMostOnce`], the call will return as soon as the packet
+	/// has been written to the transport stream; with [`AtLeastOnce`] the call
+	/// will return when the corresponding [`PubAck`] has been received from the
+	/// Server; and with [`ExactlyOnce`] the call will return when the
+	/// corresponding [`PubComp`] has been received.
 	///
 	/// # Example
 	///
 	/// ```no_run
 	/// # tokio_test::block_on(async {
-	/// use tjh_mqtt::{QoS::AtMostOnce, async_client};
+	/// use tjh_mqtt::{async_client, QoS::AtMostOnce};
 	/// let (client, handle) = async_client::client(("localhost", 1883));
 	///
 	/// // Publish a message.
-	/// if client.publish("a/b", "Hello, world!", AtMostOnce, false).await.is_ok() {
-	///     println!("Message published.");
+	/// if client
+	/// 	.publish("a/b", "Hello, world!", AtMostOnce, false)
+	/// 	.await
+	/// 	.is_ok()
+	/// {
+	/// 	println!("Message published.");
 	/// }
 	/// # })
 	/// ```
@@ -124,8 +138,9 @@ impl Client {
 		Ok(())
 	}
 
-	/// Sends an [`Unsubscribe`] packet with `filters` to the Server. On receiving a corresponding
-	/// [`UnsubAck`], the client will drop any matching filters.
+	/// Sends an [`Unsubscribe`] packet with `filters` to the Server. On
+	/// receiving a corresponding [`UnsubAck`], the client will drop any
+	/// matching filters.
 	///
 	/// [`Unsubscribe`]: crate::packets::Unsubscribe
 	/// [`UnsubAck`]: crate::packets::UnsubAck

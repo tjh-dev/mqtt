@@ -209,7 +209,6 @@ impl OutgoingPublishManager {
 	}
 
 	/// The outgoing Publish cycle has been concluded.
-	///
 	pub fn handle_pubcomp(&mut self, pubcomp: PubComp) -> Result<(), StateError> {
 		let tx = self
 			.awaiting_pubcomp

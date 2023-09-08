@@ -48,7 +48,6 @@ impl<H: AsRef<str>> From<(H, u16)> for Options {
 }
 
 /// Construct a new asynchronous MQTT client.
-///
 #[inline]
 pub fn client(options: impl Into<Options>) -> (client::Client, JoinHandle<crate::Result<()>>) {
 	let (tx, rx) = mpsc::unbounded_channel();

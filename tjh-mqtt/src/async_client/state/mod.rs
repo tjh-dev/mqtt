@@ -16,7 +16,6 @@ pub type PublishTx = mpsc::Sender<Publish>;
 pub type PublishRx = mpsc::Receiver<Publish>;
 
 /// Mantains Client state after ConnAck has been recevied.
-///
 #[derive(Debug, Default)]
 pub struct State {
 	subscriptions: SubscriptionsManager,
@@ -48,7 +47,6 @@ impl State {
 	}
 
 	/// Process an incoming Packet from the broker.
-	///
 	pub async fn process_incoming_packet(
 		&mut self,
 		packet: Packet,
