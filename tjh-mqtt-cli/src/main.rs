@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use std::{io::stdin, process, str::from_utf8, time::Duration};
-use tjh_mqtt::{async_client::Options, FilterBuf, QoS};
+use mqtt::{async_client::Options, FilterBuf, QoS};
 use tokio::{io, signal, task::JoinHandle};
 use tracing::subscriber::SetGlobalDefaultError;
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};
@@ -8,7 +8,7 @@ use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 const EXIT_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> tjh_mqtt::Result<()> {
+async fn main() -> mqtt::Result<()> {
 	setup_tracing()?;
 
 	let arguments = Arguments::parse();
@@ -16,7 +16,7 @@ async fn main() -> tjh_mqtt::Result<()> {
 	let Arguments { command, qos, .. } = arguments;
 
 	// Create the MQTT client.
-	let (client, handle) = tjh_mqtt::async_client::client(options);
+	let (client, handle) = mqtt::async_client::client(options);
 
 	match command {
 		Commands::Sub { topics, .. } => {
