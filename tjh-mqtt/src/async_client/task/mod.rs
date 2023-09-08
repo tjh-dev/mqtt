@@ -48,7 +48,7 @@ impl MqttStream {
 pub async fn client_task(options: Options, mut rx: CommandRx) -> crate::Result<()> {
 	//
 	// Build the Connect packet.
-	let connect: Packet = Connect {
+	let mut connect: Packet = Connect {
 		client_id: options.client_id.clone(),
 		keep_alive: options.keep_alive,
 		clean_session: options.clean_session,
@@ -101,6 +101,16 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> crate::Result<(
 				ConnAckResult::Continue { session_present } => {
 					tracing::debug!("connected! session_present = {session_present}");
 					holdoff.reset();
+
+					// Set clean_session to false, so we (hopefully) resume subscriptions
+					// next time we reconnect and send theconnect packet.
+					//
+					// The re-connect logic will attempt to re-subscribe to any active
+					// subscriptions if session_present is false.
+					let Packet::Connect(connect) = &mut connect else {
+						panic!()
+					};
+					connect.clean_session = false;
 					client_state.connected(session_present)
 				}
 				ConnAckResult::Timeout => {
