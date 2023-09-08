@@ -28,7 +28,8 @@ pub struct FilterError {
 
 #[derive(Debug)]
 pub enum ErrorKind {
-	/// The filter is either more than 65,535 UTF-8 encoded bytes long, or empty.
+	/// The filter is either more than 65,535 UTF-8 encoded bytes long, or
+	/// empty.
 	Length,
 	InvalidWildcard,
 	WildcardPosition,

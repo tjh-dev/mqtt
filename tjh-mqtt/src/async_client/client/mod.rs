@@ -38,13 +38,13 @@ impl Client {
 	/// let (client, handle) = async_client::client(("localhost", 1883));
 	///
 	/// let filter = FilterBuf::new("a/b").unwrap();
-	/// 
+	///
 	/// // Create the subscription.
 	/// let mut subscription = client
 	/// 	.subscribe(vec![(filter, AtMostOnce)], 8)
 	/// 	.await
 	/// 	.unwrap();
-	/// 
+	///
 	/// // Receive messages matching the filter.
 	/// while let Some(message) = subscription.recv().await {
 	/// 	println!(
