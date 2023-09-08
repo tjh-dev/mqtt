@@ -1,13 +1,13 @@
 //! # MQTT
 //!
 //! A library for interacting with the MQTT protocol.
+mod filter;
 mod packet;
 mod qos;
 mod serde;
 
 #[cfg(feature = "async-client")]
 pub mod async_client;
-pub mod filter;
 pub mod misc;
 pub mod packets;
 
