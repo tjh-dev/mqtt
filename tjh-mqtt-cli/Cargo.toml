@@ -9,3 +9,7 @@ tjh-mqtt = { version = "0.1.0", path = "../tjh-mqtt", features = ["async-client"
 tokio = { version = "1.32.0", features = ["rt", "signal", "macros"] }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
+
+[[bin]]
+name = "mqtt"
+path = "src/main.rs"

@@ -4,3 +4,9 @@ members = [
   "tjh-mqtt",
   "tjh-mqtt-cli"
 ]
+
+[profile.release]
+strip = true
+lto = "fat"
+opt-level = "s"
+panic = "abort"
