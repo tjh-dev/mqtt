@@ -2,6 +2,7 @@
 //!
 //! A library for interacting with the MQTT protocol.
 mod packet;
+mod qos;
 mod serde;
 
 #[cfg(feature = "async-client")]
@@ -12,8 +13,8 @@ pub mod packets;
 
 pub use self::{
 	filter::{Filter, FilterBuf, FilterError},
-	misc::QoS,
 	packet::{Packet, PacketType},
+	qos::{InvalidQoS, QoS},
 };
 
 pub type PacketId = core::num::NonZeroU16;

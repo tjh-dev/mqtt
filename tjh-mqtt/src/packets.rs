@@ -1,4 +1,4 @@
-use crate::{filter, misc, serde, FilterBuf, Packet, PacketId, QoS};
+use crate::{filter, misc, serde, FilterBuf, InvalidQoS, Packet, PacketId, QoS};
 use bytes::{Buf, BufMut, Bytes};
 use std::{borrow::Cow, error, fmt, io, str::Utf8Error};
 
@@ -603,9 +603,9 @@ impl From<Utf8Error> for ParseError {
 	}
 }
 
-impl From<misc::InvalidQoS> for ParseError {
+impl From<InvalidQoS> for ParseError {
 	#[inline]
-	fn from(_: misc::InvalidQoS) -> Self {
+	fn from(_: InvalidQoS) -> Self {
 		Self::InvalidQoS
 	}
 }
