@@ -14,6 +14,7 @@ pub struct InvalidQoS;
 
 impl TryFrom<u8> for QoS {
 	type Error = InvalidQoS;
+	#[inline]
 	fn try_from(value: u8) -> Result<Self, Self::Error> {
 		match value {
 			0 => Ok(Self::AtMostOnce),
@@ -34,6 +35,7 @@ pub struct Credentials {
 }
 
 impl From<String> for Credentials {
+	#[inline]
 	fn from(username: String) -> Self {
 		Self {
 			username,
@@ -43,6 +45,7 @@ impl From<String> for Credentials {
 }
 
 impl From<&str> for Credentials {
+	#[inline]
 	fn from(username: &str) -> Self {
 		Self {
 			username: String::from(username),
@@ -52,6 +55,7 @@ impl From<&str> for Credentials {
 }
 
 impl From<(String, String)> for Credentials {
+	#[inline]
 	fn from((username, password): (String, String)) -> Self {
 		Self {
 			username,
@@ -61,6 +65,7 @@ impl From<(String, String)> for Credentials {
 }
 
 impl From<(&str, &str)> for Credentials {
+	#[inline]
 	fn from((username, password): (&str, &str)) -> Self {
 		Self {
 			username: String::from(username),

@@ -41,6 +41,7 @@ impl FilterError {
 }
 
 impl fmt::Display for FilterError {
+	#[inline]
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		write!(f, "invalid mqtt filter: {:?}, {}", self.kind, self.message)
 	}
@@ -180,6 +181,7 @@ impl Filter {
 }
 
 impl Default for &Filter {
+	#[inline]
 	fn default() -> Self {
 		DEFAULT
 	}
@@ -219,6 +221,7 @@ impl FilterBuf {
 }
 
 impl Default for FilterBuf {
+	#[inline]
 	fn default() -> Self {
 		DEFAULT.to_owned()
 	}
@@ -226,6 +229,7 @@ impl Default for FilterBuf {
 
 impl ops::Deref for FilterBuf {
 	type Target = Filter;
+	#[inline]
 	fn deref(&self) -> &Self::Target {
 		let Self(inner) = self;
 		Filter::from_str(inner)

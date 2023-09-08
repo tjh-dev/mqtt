@@ -139,6 +139,7 @@ impl Packet {
 }
 
 impl From<Connect> for Packet {
+	#[inline]
 	fn from(value: Connect) -> Self {
 		Self::Connect(value)
 	}
@@ -152,24 +153,28 @@ impl From<ConnAck> for Packet {
 }
 
 impl From<Publish> for Packet {
+	#[inline]
 	fn from(value: Publish) -> Self {
 		Self::Publish(value)
 	}
 }
 
 impl From<Subscribe> for Packet {
+	#[inline]
 	fn from(value: Subscribe) -> Self {
 		Self::Subscribe(value)
 	}
 }
 
 impl From<SubAck> for Packet {
+	#[inline]
 	fn from(value: SubAck) -> Self {
 		Self::SubAck(value)
 	}
 }
 
 impl From<Unsubscribe> for Packet {
+	#[inline]
 	fn from(value: Unsubscribe) -> Self {
 		Self::Unsubscribe(value)
 	}

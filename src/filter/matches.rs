@@ -8,6 +8,7 @@ pub struct Matches {
 }
 
 impl Matches {
+	#[inline]
 	pub fn score(&self) -> usize {
 		self.exact * 100 + self.wildcard * 10 + self.multi_wildcard
 	}
@@ -21,6 +22,7 @@ impl cmp::PartialOrd for Matches {
 }
 
 impl cmp::Ord for Matches {
+	#[inline]
 	fn cmp(&self, other: &Self) -> cmp::Ordering {
 		self.score().cmp(&other.score())
 	}

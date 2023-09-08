@@ -125,7 +125,7 @@ pub async fn client_task(options: Options, mut rx: CommandRx) -> crate::Result<(
 				let Ok(Some(Packet::SubAck(suback))) = connection.read_packet().await else {
 					tracing::error!("failed to read SubAck");
 					holdoff.increase_with(|delay| delay * 4);
-					break
+					break;
 				};
 				if client_state
 					.process_incoming_packet(Packet::SubAck(suback))

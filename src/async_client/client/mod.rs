@@ -149,6 +149,7 @@ impl Client {
 	/// A compliant Server must immediately close the connection.
 	///
 	/// [`Disconnect`]: crate::packets::Disconnect
+	#[inline]
 	pub async fn disconnect(self) -> Result<(), ClientTaskClosed> {
 		self.tx.send(Command::Shutdown)?;
 		Ok(())
@@ -156,18 +157,21 @@ impl Client {
 }
 
 impl fmt::Display for ClientTaskClosed {
+	#[inline]
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		write!(f, "{self:?}")
 	}
 }
 
 impl<T> From<mpsc::error::SendError<T>> for ClientTaskClosed {
+	#[inline]
 	fn from(_: mpsc::error::SendError<T>) -> Self {
 		Self
 	}
 }
 
 impl From<oneshot::error::RecvError> for ClientTaskClosed {
+	#[inline]
 	fn from(_: oneshot::error::RecvError) -> Self {
 		Self
 	}

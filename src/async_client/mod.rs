@@ -36,6 +36,7 @@ impl Default for Options {
 }
 
 impl<H: AsRef<str>> From<(H, u16)> for Options {
+	#[inline]
 	fn from(value: (H, u16)) -> Self {
 		let (host, port) = value;
 		Self {
@@ -48,6 +49,7 @@ impl<H: AsRef<str>> From<(H, u16)> for Options {
 
 /// Construct a new asynchronous MQTT client.
 ///
+#[inline]
 pub fn client(options: impl Into<Options>) -> (client::Client, JoinHandle<crate::Result<()>>) {
 	let (tx, rx) = mpsc::unbounded_channel();
 	let handle = tokio::spawn(task::client_task(options.into(), rx));

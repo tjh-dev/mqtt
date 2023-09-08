@@ -186,15 +186,19 @@ impl SubscriptionsManager {
 	pub fn find_publish_channel(&self, topic: &str) -> Option<&PublishTx> {
 		let start = Instant::now();
 
-		let Some((filter, score, channel)) = self.subscriptions
+		let Some((filter, score, channel)) = self
+			.subscriptions
 			.iter()
 			.filter_map(|(filter, (channel, _))| {
-				filter.matches_topic(topic).map(|score| (filter, score.score(), channel))
+				filter
+					.matches_topic(topic)
+					.map(|score| (filter, score.score(), channel))
 			})
-			.max_by_key(|(_, score, _)| *score) else {
-				tracing::error!(topic = ?topic, subscriptions = ?self.subscriptions, "failed to find channel for");
-				return None;
-			};
+			.max_by_key(|(_, score, _)| *score)
+		else {
+			tracing::error!(topic = ?topic, subscriptions = ?self.subscriptions, "failed to find channel for");
+			return None;
+		};
 		let time = start.elapsed();
 
 		tracing::debug!(topic = ?topic, filter = ?filter, score = ?score, time = ?time, "found channel for");

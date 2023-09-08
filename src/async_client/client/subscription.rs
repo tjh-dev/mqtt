@@ -40,6 +40,7 @@ impl Subscription {
 	///     println!("{}: {:?}", &message.topic, &message.payload[..]);
 	/// }
 	/// ```
+	#[inline]
 	pub async fn recv(&mut self) -> Option<MessageGuard> {
 		let Some(next_message) = self.rx.recv().await else {
 			// All the matching senders for the channel have been closed or dropped.
@@ -88,6 +89,7 @@ impl Subscription {
 	}
 
 	/// Returns a slice of the Filters associated with the Subscription.
+	#[inline]
 	pub fn filters(&self) -> &[(FilterBuf, QoS)] {
 		&self.filters
 	}
@@ -98,6 +100,7 @@ impl MessageGuard {
 	///
 	/// For messages published with a Quality of Service of ExactlyOnce, this
 	/// will trigger a PubComp message to be sent to the Server.
+	#[inline]
 	pub fn complete(mut self) -> Message {
 		if let Some((id, tx)) = self.sig.take() {
 			let _ = tx.send(Command::PublishComplete { id });
@@ -107,6 +110,7 @@ impl MessageGuard {
 }
 
 impl Drop for MessageGuard {
+	#[inline]
 	fn drop(&mut self) {
 		if let Some((id, tx)) = self.sig.take() {
 			let _ = tx.send(Command::PublishComplete { id });
@@ -116,12 +120,14 @@ impl Drop for MessageGuard {
 
 impl ops::Deref for MessageGuard {
 	type Target = Message;
+	#[inline]
 	fn deref(&self) -> &Self::Target {
 		self.msg.as_ref().unwrap()
 	}
 }
 
 impl Drop for Subscription {
+	#[inline]
 	fn drop(&mut self) {
 		if !self.filters.is_empty() {
 			let (tx, _) = oneshot::channel();

@@ -206,7 +206,6 @@ mod connect {
 			len
 		}
 
-		#[inline(always)]
 		fn flags(&self) -> u8 {
 			let mut flags = 0;
 
@@ -392,7 +391,7 @@ impl Publish {
 	}
 
 	/// Returns the topic of the Publish packet.
-	#[inline(always)]
+	#[inline]
 	pub fn topic(&self) -> &str {
 		match self {
 			Self::AtMostOnce { topic, .. } => topic,
@@ -402,7 +401,7 @@ impl Publish {
 	}
 
 	/// Returns the payload of the Publish packet.
-	#[inline(always)]
+	#[inline]
 	pub fn payload(&self) -> &Bytes {
 		match self {
 			Self::AtMostOnce { payload, .. } => payload,
@@ -412,7 +411,7 @@ impl Publish {
 	}
 
 	/// Returns the QoS of the Publish packet.
-	#[inline(always)]
+	#[inline]
 	pub fn qos(&self) -> QoS {
 		match self {
 			Self::AtMostOnce { .. } => QoS::AtMostOnce,
@@ -422,7 +421,7 @@ impl Publish {
 	}
 
 	/// Returns the retain flag of the Publish packet.
-	#[inline(always)]
+	#[inline]
 	pub fn retain(&self) -> bool {
 		match self {
 			Self::AtMostOnce { retain, .. } => *retain,
@@ -437,7 +436,7 @@ impl Publish {
 	/// [`AtMostOnce`].
 	///
 	/// [`AtMostOnce`]: QoS#variant.AtMostOnce
-	#[inline(always)]
+	#[inline]
 	pub fn id(&self) -> Option<PacketId> {
 		match self {
 			Self::AtMostOnce { .. } => None,
@@ -452,7 +451,7 @@ impl Publish {
 	/// [`AtMostOnce`].
 	///
 	/// [`AtMostOnce`]: QoS#variant.AtMostOnce
-	#[inline(always)]
+	#[inline]
 	pub fn duplicate(&self) -> bool {
 		match self {
 			Self::AtMostOnce { .. } => false,
@@ -463,6 +462,7 @@ impl Publish {
 }
 
 impl fmt::Debug for Publish {
+	#[inline]
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		f.debug_struct("Publish")
 			.field("id", &self.id())
@@ -597,24 +597,28 @@ pub enum ParseError {
 }
 
 impl From<Utf8Error> for ParseError {
+	#[inline]
 	fn from(value: Utf8Error) -> Self {
 		Self::Utf8Error(value)
 	}
 }
 
 impl From<misc::InvalidQoS> for ParseError {
+	#[inline]
 	fn from(_: misc::InvalidQoS) -> Self {
 		Self::InvalidQoS
 	}
 }
 
 impl From<filter::FilterError> for ParseError {
+	#[inline]
 	fn from(value: filter::FilterError) -> Self {
 		Self::InvalidFilter(value)
 	}
 }
 
 impl fmt::Display for ParseError {
+	#[inline]
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		write!(f, "{self:?}")
 	}
@@ -653,6 +657,7 @@ macro_rules! id_packet {
 		}
 
 		impl From<$name> for Packet {
+			#[inline]
 			fn from(value: $name) -> Packet {
 				$variant(value)
 			}
@@ -685,6 +690,7 @@ macro_rules! nul_packet {
 		}
 
 		impl From<$name> for crate::packet::Packet {
+			#[inline]
 			fn from(_: $name) -> crate::packet::Packet {
 				$variant
 			}
