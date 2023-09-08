@@ -7,7 +7,7 @@ description = "Experimental MQTT client"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/tjh-dev/mqtt"
 repository = "https://github.com/tjh-dev/mqtt"
-documentation = "https://github.com/tjh-dev/mqtt"
+documentation = "https://docs.rs/crate/tjh-mqtt/latest"
 readme = "README.md"
 
 [dependencies]
