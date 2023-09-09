@@ -1,4 +1,4 @@
-use crate::{filter, misc, serde, FilterBuf, InvalidQoS, Packet, PacketId, QoS};
+use crate::{filter, misc, serde, FilterBuf, InvalidQoS, Packet, PacketId, QoS, Topic, TopicBuf};
 use bytes::{Buf, BufMut, Bytes};
 use std::{borrow::Cow, error, fmt, io, str::Utf8Error};
 
@@ -28,21 +28,21 @@ pub struct ConnAck {
 pub enum Publish {
 	AtMostOnce {
 		retain: bool,
-		topic: String,
+		topic: TopicBuf,
 		payload: Bytes,
 	},
 	AtLeastOnce {
 		id: PacketId,
 		retain: bool,
 		duplicate: bool,
-		topic: String,
+		topic: TopicBuf,
 		payload: Bytes,
 	},
 	ExactlyOnce {
 		id: PacketId,
 		retain: bool,
 		duplicate: bool,
-		topic: String,
+		topic: TopicBuf,
 		payload: Bytes,
 	},
 }
@@ -286,7 +286,7 @@ impl Publish {
 		let duplicate = flags & PUBLISH_HEADER_DUPLICATE_FLAG == PUBLISH_HEADER_DUPLICATE_FLAG;
 		let qos: QoS = ((flags & PUBLISH_HEADER_QOS_MASK) >> 1).try_into()?;
 
-		let topic = String::from(serde::get_str(&mut cursor)?);
+		let topic = TopicBuf::new(serde::get_str(&mut cursor)?)?;
 
 		// The interpretation of the remaining bytes depends on the QoS.
 		match qos {
@@ -348,7 +348,7 @@ impl Publish {
 					| (QoS::AtMostOnce as u8) << 1;
 				serde::put_u8(dst, PUBLISH_HEADER_CONTROL | flags)?;
 				serde::put_var(dst, 2 + topic.len() + payload.len())?;
-				serde::put_str(dst, topic)?;
+				serde::put_str(dst, topic.as_str())?;
 				serde::put_slice(dst, payload)?;
 			}
 			Self::AtLeastOnce {
@@ -364,7 +364,7 @@ impl Publish {
 						.unwrap_or(0) | (QoS::AtLeastOnce as u8) << 1;
 				serde::put_u8(dst, PUBLISH_HEADER_CONTROL | flags)?;
 				serde::put_var(dst, 4 + topic.len() + payload.len())?;
-				serde::put_str(dst, topic)?;
+				serde::put_str(dst, topic.as_str())?;
 				serde::put_u16(dst, id.get())?;
 				serde::put_slice(dst, payload)?;
 			}
@@ -381,7 +381,7 @@ impl Publish {
 						.unwrap_or(0) | (QoS::ExactlyOnce as u8) << 1;
 				serde::put_u8(dst, PUBLISH_HEADER_CONTROL | flags)?;
 				serde::put_var(dst, 4 + topic.len() + payload.len())?;
-				serde::put_str(dst, topic)?;
+				serde::put_str(dst, topic.as_str())?;
 				serde::put_u16(dst, id.get())?;
 				serde::put_slice(dst, payload)?;
 			}
@@ -392,7 +392,7 @@ impl Publish {
 
 	/// Returns the topic of the Publish packet.
 	#[inline]
-	pub fn topic(&self) -> &str {
+	pub fn topic(&self) -> &Topic {
 		match self {
 			Self::AtMostOnce { topic, .. } => topic,
 			Self::AtLeastOnce { topic, .. } => topic,
@@ -589,6 +589,7 @@ pub enum ParseError {
 	Incomplete,
 	InvalidQoS,
 	InvalidFilter(filter::FilterError),
+	InvalidTopic(crate::InvalidTopic),
 	InvalidHeader,
 	ZeroPacketId,
 	MalformedLength,
@@ -607,6 +608,12 @@ impl From<InvalidQoS> for ParseError {
 	#[inline]
 	fn from(_: InvalidQoS) -> Self {
 		Self::InvalidQoS
+	}
+}
+
+impl From<crate::InvalidTopic> for ParseError {
+	fn from(value: crate::InvalidTopic) -> Self {
+		Self::InvalidTopic(value)
 	}
 }
 

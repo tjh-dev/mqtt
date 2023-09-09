@@ -3,6 +3,8 @@ pub use matches::Matches;
 
 use std::{borrow, error, fmt, ops};
 
+use crate::Topic;
+
 const LEVEL_SEPARATOR: char = '/';
 const SINGLE_LEVEL_WILDCARD: char = '+';
 const SINGLE_LEVEL_WILDCARD_STR: &str = "+";
@@ -108,9 +110,9 @@ impl Filter {
 	/// Returns `None` if the topic does not match. If `topic` does match, a
 	/// tuple of the number of levels matched exactly and the number of levels
 	/// matched by wildcards is returned.
-	pub fn matches_topic(&self, topic: &str) -> Option<Matches> {
+	pub fn matches_topic(&self, topic: &Topic) -> Option<Matches> {
 		let filter_levels = self.as_str().split(LEVEL_SEPARATOR);
-		let mut topic_levels = topic.split(LEVEL_SEPARATOR);
+		let mut topic_levels = topic.levels();
 
 		let mut result = Matches::default();
 
@@ -261,6 +263,8 @@ impl AsRef<Filter> for FilterBuf {
 
 #[cfg(test)]
 mod tests {
+	use crate::Topic;
+
 	use super::{Filter, Matches};
 
 	#[test]
@@ -281,10 +285,10 @@ mod tests {
 	#[test]
 	fn matches_topics() {
 		let filter = Filter::from_static("a/b/#");
-		assert_eq!(filter.matches_topic("/b"), None);
-		assert_eq!(filter.matches_topic("a/b"), None);
+		assert_eq!(filter.matches_topic(Topic::from_static("/b")), None);
+		assert_eq!(filter.matches_topic(Topic::from_static("a/b")), None);
 		assert_eq!(
-			filter.matches_topic("a/b/c"),
+			filter.matches_topic(Topic::from_static("a/b/c")),
 			Some(Matches {
 				exact: 2,
 				wildcard: 0,
@@ -292,7 +296,7 @@ mod tests {
 			})
 		);
 		assert_eq!(
-			filter.matches_topic("a/b/c/d"),
+			filter.matches_topic(Topic::from_static("a/b/c/d")),
 			Some(Matches {
 				exact: 2,
 				wildcard: 0,
@@ -301,11 +305,11 @@ mod tests {
 		);
 
 		let filter = Filter::from_static("+/+/c/#");
-		assert_eq!(filter.matches_topic("/b"), None);
-		assert_eq!(filter.matches_topic("a/b/c"), None);
-		assert_eq!(filter.matches_topic("a/b/cd/e"), None);
+		assert_eq!(filter.matches_topic(Topic::from_static("/b")), None);
+		assert_eq!(filter.matches_topic(Topic::from_static("a/b/c")), None);
+		assert_eq!(filter.matches_topic(Topic::from_static("a/b/cd/e")), None);
 		assert_eq!(
-			filter.matches_topic("//c//"),
+			filter.matches_topic(Topic::from_static("//c//")),
 			Some(Matches {
 				exact: 1,
 				wildcard: 2,

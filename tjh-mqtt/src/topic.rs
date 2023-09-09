@@ -1,12 +1,12 @@
 use core::borrow;
-use std::ops;
+use std::{error, fmt, ops};
 
 /// An MQTT topic.
 #[derive(Debug)]
 pub struct Topic(str);
 
 /// An owned MQTT topic.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct TopicBuf(String);
 
 #[derive(Debug)]
@@ -78,6 +78,10 @@ impl Topic {
 	fn from_str(s: &str) -> &Self {
 		unsafe { &*(s as *const str as *const Topic) }
 	}
+
+	pub fn from_static(s: &'static str) -> &Self {
+		Self::from_str(s)
+	}
 }
 
 impl TopicBuf {
@@ -143,3 +147,30 @@ impl AsRef<Topic> for TopicBuf {
 		Topic::from_str(self.as_str())
 	}
 }
+
+impl fmt::Display for TopicBuf {
+	#[inline]
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		let Self(inner) = self;
+		inner.fmt(f)
+	}
+}
+
+impl fmt::Display for InvalidTopic {
+	#[inline]
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		match self {
+			InvalidTopic::Empty => write!(f, "topic cannot be empty"),
+			InvalidTopic::TooLong => write!(
+				f,
+				"topic cannot exceed maximum MQTT string length (65,535 bytes)"
+			),
+			InvalidTopic::InvalidCharacter(position, character) => write!(
+				f,
+				"wildcard '{character}' (at 1:{position}) cannot appear in topic"
+			),
+		}
+	}
+}
+
+impl error::Error for InvalidTopic {}

@@ -2,6 +2,7 @@ use tokio::time::Instant;
 
 use super::{PacketType, PublishTx, StateError};
 use crate::async_client::command::{ResponseTx, SubscribeCommand, UnsubscribeCommand};
+use crate::Topic;
 use crate::{
 	packets::{SubAck, Subscribe, UnsubAck, Unsubscribe},
 	FilterBuf, Packet, PacketId, QoS,
@@ -183,7 +184,7 @@ impl SubscriptionsManager {
 	}
 
 	/// Finds a channel to publish messages for `topic` to.
-	pub fn find_publish_channel(&self, topic: &str) -> Option<&PublishTx> {
+	pub fn find_publish_channel(&self, topic: &Topic) -> Option<&PublishTx> {
 		let start = Instant::now();
 
 		let Some((filter, score, channel)) = self

@@ -1,5 +1,5 @@
 use super::state::PublishTx;
-use crate::{FilterBuf, PacketId, QoS};
+use crate::{FilterBuf, PacketId, QoS, TopicBuf};
 use bytes::Bytes;
 use tokio::sync::{
 	mpsc::{UnboundedReceiver, UnboundedSender},
@@ -24,7 +24,7 @@ pub enum Command {
 
 #[derive(Debug)]
 pub struct PublishCommand {
-	pub topic: String,
+	pub topic: TopicBuf,
 	pub payload: Bytes,
 	pub qos: QoS,
 	pub retain: bool,

@@ -1,7 +1,10 @@
 use super::ClientTaskClosed;
-use crate::async_client::{
-	command::{Command, CommandTx, UnsubscribeCommand},
-	state::PublishRx,
+use crate::{
+	async_client::{
+		command::{Command, CommandTx, UnsubscribeCommand},
+		state::PublishRx,
+	},
+	TopicBuf,
 };
 use crate::{FilterBuf, PacketId, QoS};
 use bytes::Bytes;
@@ -10,7 +13,7 @@ use tokio::sync::oneshot;
 
 #[derive(Debug)]
 pub struct Message {
-	pub topic: String,
+	pub topic: TopicBuf,
 	pub payload: Bytes,
 }
 #[derive(Debug)]

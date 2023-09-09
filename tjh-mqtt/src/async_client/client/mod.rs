@@ -1,5 +1,5 @@
 use super::command::{Command, CommandTx, PublishCommand, SubscribeCommand, UnsubscribeCommand};
-use crate::{FilterBuf, QoS};
+use crate::{FilterBuf, QoS, TopicBuf};
 use bytes::Bytes;
 use core::fmt;
 use tokio::{
@@ -117,7 +117,7 @@ impl Client {
 	#[tracing::instrument(skip(self), ret, err)]
 	pub async fn publish(
 		&self,
-		topic: impl Into<String> + fmt::Debug,
+		topic: impl Into<TopicBuf> + fmt::Debug,
 		payload: impl Into<Bytes> + fmt::Debug,
 		qos: QoS,
 		retain: bool,
