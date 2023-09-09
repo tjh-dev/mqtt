@@ -1,3 +1,4 @@
+use crate::traits::IntoTopicBuf;
 use core::borrow;
 use std::{error, fmt, ops};
 
@@ -116,6 +117,13 @@ impl ToOwned for Topic {
 	}
 }
 
+impl<'t> TryFrom<&'t str> for &'t Topic {
+	type Error = InvalidTopic;
+	fn try_from(value: &'t str) -> Result<Self, Self::Error> {
+		Topic::new(value)
+	}
+}
+
 impl ops::Deref for TopicBuf {
 	type Target = Topic;
 	#[inline]
@@ -145,6 +153,27 @@ impl AsRef<Topic> for TopicBuf {
 	#[inline]
 	fn as_ref(&self) -> &Topic {
 		Topic::from_str(self.as_str())
+	}
+}
+
+impl IntoTopicBuf for &str {
+	#[inline]
+	fn into_topic_buf(self) -> Result<TopicBuf, InvalidTopic> {
+		TopicBuf::new(self)
+	}
+}
+
+impl IntoTopicBuf for String {
+	#[inline]
+	fn into_topic_buf(self) -> Result<TopicBuf, InvalidTopic> {
+		TopicBuf::new(self)
+	}
+}
+
+impl IntoTopicBuf for TopicBuf {
+	#[inline]
+	fn into_topic_buf(self) -> Result<TopicBuf, InvalidTopic> {
+		Ok(self)
 	}
 }
 

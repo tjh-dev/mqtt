@@ -1,4 +1,4 @@
-use crate::{FilterBuf, FilterError, QoS};
+use crate::{FilterBuf, FilterError, InvalidTopic, QoS, TopicBuf};
 
 pub trait IntoFilters {
 	fn into_filters(self) -> Result<Vec<FilterBuf>, FilterError>;
@@ -6,6 +6,10 @@ pub trait IntoFilters {
 
 pub trait IntoFiltersWithQoS {
 	fn into_filters_with_qos(self) -> Result<Vec<(FilterBuf, QoS)>, FilterError>;
+}
+
+pub trait IntoTopicBuf {
+	fn into_topic_buf(self) -> Result<TopicBuf, InvalidTopic>;
 }
 
 impl IntoFilters for &str {

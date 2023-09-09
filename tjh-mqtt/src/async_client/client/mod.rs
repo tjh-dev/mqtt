@@ -1,5 +1,8 @@
 use super::command::{Command, CommandTx, PublishCommand, SubscribeCommand, UnsubscribeCommand};
-use crate::{traits::IntoFilters, FilterError, IntoFiltersWithQoS, QoS, TopicBuf};
+use crate::{
+	traits::{IntoFilters, IntoTopicBuf},
+	FilterError, IntoFiltersWithQoS, InvalidTopic, QoS, TopicBuf,
+};
 use bytes::Bytes;
 use core::fmt;
 use tokio::{
@@ -22,6 +25,7 @@ pub struct ClientTaskClosed;
 pub enum ClientError {
 	ClientTaskClosed,
 	InvalidFilter(FilterError),
+	InvalidTopic(InvalidTopic),
 }
 
 impl Client {
@@ -120,18 +124,22 @@ impl Client {
 	/// [`PubAck`]: crate::packets::PubAck
 	/// [`PubComp`]: crate::packets::PubComp
 	#[tracing::instrument(skip(self), ret, err)]
-	pub async fn publish(
+	pub async fn publish<Topic>(
 		&self,
-		topic: impl Into<TopicBuf> + fmt::Debug,
+		topic: Topic,
 		payload: impl Into<Bytes> + fmt::Debug,
 		qos: QoS,
 		retain: bool,
-	) -> Result<(), ClientTaskClosed> {
+	) -> Result<(), ClientError>
+	where
+		Topic: IntoTopicBuf + fmt::Debug,
+	{
 		let start = Instant::now();
 
+		let topic: TopicBuf = topic.into_topic_buf()?;
 		let (response_tx, response_rx) = oneshot::channel();
 		self.tx.send(Command::Publish(PublishCommand {
-			topic: topic.into(),
+			topic,
 			payload: payload.into(),
 			qos,
 			retain,
@@ -150,9 +158,9 @@ impl Client {
 	/// [`Unsubscribe`]: crate::packets::Unsubscribe
 	/// [`UnsubAck`]: crate::packets::UnsubAck
 	#[tracing::instrument(skip(self), ret, err)]
-	pub async fn unsubscribe<T>(&self, filters: T) -> Result<(), ClientError>
+	pub async fn unsubscribe<Filters>(&self, filters: Filters) -> Result<(), ClientError>
 	where
-		T: IntoFilters + fmt::Debug,
+		Filters: IntoFilters + fmt::Debug,
 	{
 		let start = Instant::now();
 
@@ -224,6 +232,12 @@ impl From<oneshot::error::RecvError> for ClientError {
 impl From<FilterError> for ClientError {
 	fn from(value: FilterError) -> Self {
 		Self::InvalidFilter(value)
+	}
+}
+
+impl From<InvalidTopic> for ClientError {
+	fn from(value: InvalidTopic) -> Self {
+		Self::InvalidTopic(value)
 	}
 }
 

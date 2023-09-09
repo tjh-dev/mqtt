@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand, ValueEnum};
-use mqtt::{async_client::Options, QoS, TopicBuf};
+use mqtt::{async_client::Options, QoS};
 use std::{io::stdin, process, str::from_utf8, time::Duration};
 use tokio::{io, signal, task::JoinHandle};
 use tracing::subscriber::SetGlobalDefaultError;
@@ -61,14 +61,6 @@ async fn main() -> mqtt::Result<()> {
 			payload,
 			..
 		} => {
-			let topic = match TopicBuf::new(topic) {
-				Ok(topic) => topic,
-				Err(error) => {
-					eprintln!("{error}");
-					process::exit(2);
-				}
-			};
-
 			match payload {
 				Some(payload) => {
 					// The user has supplied the payload as a command-line argument. Publish
@@ -76,7 +68,7 @@ async fn main() -> mqtt::Result<()> {
 					let payload = payload.as_bytes().to_vec();
 					for _ in 0..count.unwrap_or(1) {
 						client
-							.publish(topic.clone(), payload.clone(), qos.into(), false)
+							.publish(topic.as_str(), payload.clone(), qos.into(), false)
 							.await?;
 					}
 				}
