@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand, ValueEnum};
-use mqtt::{async_client::Options, FilterBuf, QoS, TopicBuf};
+use mqtt::{async_client::Options, QoS, TopicBuf};
 use std::{io::stdin, process, str::from_utf8, time::Duration};
 use tokio::{io, signal, task::JoinHandle};
 use tracing::subscriber::SetGlobalDefaultError;
@@ -20,19 +20,11 @@ async fn main() -> mqtt::Result<()> {
 
 	match command {
 		Commands::Sub { topics, .. } => {
-			// Convert the topics into a filters.
-			let mut filters = Vec::with_capacity(topics.len());
-			for topic in topics {
-				filters.push(FilterBuf::new(topic)?);
-			}
+			let qos = qos.into();
+			let unsubscribe_filters = topics.clone();
 
-			// Create a subscription to the provided topic
-			let mut subscription = client
-				.subscribe(
-					filters.iter().cloned().map(|f| (f, qos.into())).collect(),
-					1,
-				)
-				.await?;
+			// Create a subscription to the provided topics
+			let mut subscription = client.subscribe((topics, qos), 1).await?;
 
 			let signal_handler: JoinHandle<io::Result<()>> = {
 				let client = client.clone();
@@ -44,7 +36,7 @@ async fn main() -> mqtt::Result<()> {
 							tracing::warn!("Unsubscribe command timed-out, exiting");
 							process::exit(1);
 						}
-						_ = client.unsubscribe(filters) => {}
+						_ = client.unsubscribe(unsubscribe_filters) => {}
 					};
 					Ok(())
 				})

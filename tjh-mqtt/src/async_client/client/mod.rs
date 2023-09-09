@@ -1,5 +1,5 @@
 use super::command::{Command, CommandTx, PublishCommand, SubscribeCommand, UnsubscribeCommand};
-use crate::{FilterBuf, QoS, TopicBuf};
+use crate::{traits::IntoFilters, FilterError, IntoFiltersWithQoS, QoS, TopicBuf};
 use bytes::Bytes;
 use core::fmt;
 use tokio::{
@@ -18,6 +18,12 @@ pub struct Client {
 #[derive(Debug)]
 pub struct ClientTaskClosed;
 
+#[derive(Debug)]
+pub enum ClientError {
+	ClientTaskClosed,
+	InvalidFilter(FilterError),
+}
+
 impl Client {
 	pub(crate) fn new(tx: CommandTx) -> Self {
 		Self { tx }
@@ -34,16 +40,11 @@ impl Client {
 	///
 	/// ```no_run
 	/// # tokio_test::block_on(async {
-	/// use tjh_mqtt::{async_client, FilterBuf, QoS::AtMostOnce};
+	/// use tjh_mqtt::async_client;
 	/// let (client, handle) = async_client::client(("localhost", 1883));
 	///
-	/// let filter = FilterBuf::new("a/b").unwrap();
-	///
-	/// // Create the subscription.
-	/// let mut subscription = client
-	/// 	.subscribe(vec![(filter, AtMostOnce)], 8)
-	/// 	.await
-	/// 	.unwrap();
+	/// // Subscribe to topic "a/b" with the default quality of service (AtMostOnce).
+	/// let mut subscription = client.subscribe("a/b", 8).await.unwrap();
 	///
 	/// // Receive messages matching the filter.
 	/// while let Some(message) = subscription.recv().await {
@@ -59,13 +60,17 @@ impl Client {
 	/// [`Subscribe`]: crate::packets::Subscribe
 	/// [`SubAck`]: crate::packets::SubAck
 	#[tracing::instrument(skip(self), ret, err)]
-	pub async fn subscribe(
+	pub async fn subscribe<Filters>(
 		&self,
-		filters: Vec<(FilterBuf, QoS)>,
+		filters: Filters,
 		buffer: usize,
-	) -> Result<Subscription, ClientTaskClosed> {
+	) -> Result<Subscription, ClientError>
+	where
+		Filters: IntoFiltersWithQoS + fmt::Debug,
+	{
 		let start = Instant::now();
 
+		let filters = filters.into_filters_with_qos()?;
 		let (response_tx, response_rx) = oneshot::channel();
 		let (publish_tx, publish_rx) = mpsc::channel(buffer);
 		self.tx.send(Command::Subscribe(SubscribeCommand {
@@ -145,9 +150,13 @@ impl Client {
 	/// [`Unsubscribe`]: crate::packets::Unsubscribe
 	/// [`UnsubAck`]: crate::packets::UnsubAck
 	#[tracing::instrument(skip(self), ret, err)]
-	pub async fn unsubscribe(&self, filters: Vec<FilterBuf>) -> Result<(), ClientTaskClosed> {
+	pub async fn unsubscribe<T>(&self, filters: T) -> Result<(), ClientError>
+	where
+		T: IntoFilters + fmt::Debug,
+	{
 		let start = Instant::now();
 
+		let filters = filters.into_filters()?;
 		let (response_tx, response_rx) = oneshot::channel();
 		self.tx.send(Command::Unsubscribe(UnsubscribeCommand {
 			filters,
@@ -193,3 +202,29 @@ impl From<oneshot::error::RecvError> for ClientTaskClosed {
 }
 
 impl std::error::Error for ClientTaskClosed {}
+
+impl fmt::Display for ClientError {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "{self:?}")
+	}
+}
+
+impl<T> From<mpsc::error::SendError<T>> for ClientError {
+	fn from(_: mpsc::error::SendError<T>) -> Self {
+		Self::ClientTaskClosed
+	}
+}
+
+impl From<oneshot::error::RecvError> for ClientError {
+	fn from(_: oneshot::error::RecvError) -> Self {
+		Self::ClientTaskClosed
+	}
+}
+
+impl From<FilterError> for ClientError {
+	fn from(value: FilterError) -> Self {
+		Self::InvalidFilter(value)
+	}
+}
+
+impl std::error::Error for ClientError {}
