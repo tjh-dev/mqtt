@@ -1,7 +1,8 @@
 /// Quality of Service
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum QoS {
+	#[default]
 	AtMostOnce = 0,
 	AtLeastOnce,
 	ExactlyOnce,
