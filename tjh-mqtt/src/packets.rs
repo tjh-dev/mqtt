@@ -4,6 +4,9 @@ use std::{borrow::Cow, error, fmt, io, str::Utf8Error};
 
 const DEFAULT_PROTOCOL_NAME: &str = "MQTT";
 
+#[derive(Debug)]
+pub struct SubscribeFailed;
+
 //
 // Packet Types
 //
@@ -61,7 +64,7 @@ pub struct Subscribe {
 #[derive(Debug)]
 pub struct SubAck {
 	pub id: PacketId,
-	pub result: Vec<Option<QoS>>,
+	pub result: Vec<Result<QoS, SubscribeFailed>>,
 }
 
 #[derive(Debug)]
@@ -518,11 +521,11 @@ impl SubAck {
 		let mut result = Vec::new();
 		while cursor.has_remaining() {
 			let return_code = serde::get_u8(&mut cursor)?;
-			let qos: Option<QoS> = match return_code.try_into() {
-				Ok(qos) => Some(qos),
+			let qos: Result<QoS, SubscribeFailed> = match return_code.try_into() {
+				Ok(qos) => Ok(qos),
 				Err(_) => {
 					if return_code == 0x80 {
-						None
+						Err(SubscribeFailed)
 					} else {
 						return Err(ParseError::MalformedPacket("invalid return code in SubAck"));
 					}
@@ -544,7 +547,7 @@ impl SubAck {
 		serde::put_var(dst, len)?;
 		serde::put_u16(dst, id.get())?;
 		for qos in result {
-			serde::put_u8(dst, qos.map(|qos| qos as u8).unwrap_or(0x80))?;
+			serde::put_u8(dst, qos.as_ref().map(|qos| *qos as u8).unwrap_or(0x80))?;
 		}
 
 		Ok(())
