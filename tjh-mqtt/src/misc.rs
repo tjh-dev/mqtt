@@ -1,6 +1,6 @@
 use bytes::Bytes;
 
-use crate::QoS;
+use crate::{QoS, TopicBuf};
 
 /// Client credentials
 ///
@@ -60,7 +60,7 @@ impl From<(&str, &str)> for Credentials {
 #[derive(Debug)]
 pub struct Will {
 	/// The topic to publish the will message to.
-	pub topic: String,
+	pub topic: TopicBuf,
 
 	/// The message to publish as the will.
 	pub payload: Bytes,

@@ -156,6 +156,14 @@ impl AsRef<Topic> for TopicBuf {
 	}
 }
 
+impl TryFrom<String> for TopicBuf {
+	type Error = InvalidTopic;
+	#[inline]
+	fn try_from(value: String) -> Result<Self, Self::Error> {
+		Self::new(value)
+	}
+}
+
 impl IntoTopicBuf for &str {
 	#[inline]
 	fn into_topic_buf(self) -> Result<TopicBuf, InvalidTopic> {

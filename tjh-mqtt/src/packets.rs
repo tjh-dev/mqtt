@@ -118,7 +118,7 @@ mod connect {
 				let retain = flags & 0x20 == 0x20;
 
 				Some(misc::Will {
-					topic: String::from(topic),
+					topic: TopicBuf::new(topic)?,
 					payload: Bytes::from(payload),
 					qos,
 					retain,
@@ -171,7 +171,7 @@ mod connect {
 
 			// Write the will.
 			if let Some(will) = &self.will {
-				serde::put_str(dst, &will.topic)?;
+				serde::put_str(dst, will.topic.as_str())?;
 				serde::put_slice(dst, &will.payload)?;
 			}
 
