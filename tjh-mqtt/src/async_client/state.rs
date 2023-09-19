@@ -55,27 +55,9 @@ pub struct Subscription<T> {
 
 #[derive(Debug)]
 enum PublishState<R> {
-	Ack {
-		topic: TopicBuf,
-		payload: Bytes,
-		retain: bool,
-		qos: QoS,
-		response: R,
-		attempts: u16,
-		created_at: Instant,
-	},
-	Rec {
-		topic: TopicBuf,
-		payload: Bytes,
-		retain: bool,
-		qos: QoS,
-		response: R,
-		attempts: u16,
-		created_at: Instant,
-	},
-	Comp {
-		response: R,
-	},
+	Ack { response: R },
+	Rec { response: R },
+	Comp { response: R },
 }
 
 #[derive(Debug)]
@@ -244,6 +226,7 @@ impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, Un
 		expired_pingreq || expired_subscribes || expired_unsubscribes
 	}
 
+	/// Generates an outgoing Publish packet.
 	pub fn publish(
 		&mut self,
 		topic: TopicBuf,
@@ -263,22 +246,13 @@ impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, Un
 					}
 					.into(),
 				);
+
 				Some(response)
 			}
 			QoS::AtLeastOnce => {
 				let id = self.generate_publish_id();
-				self.publish_state.insert(
-					id,
-					PublishState::Ack {
-						topic: topic.clone(),
-						payload: payload.clone(),
-						retain,
-						qos,
-						response,
-						attempts: 1,
-						created_at: Instant::now(),
-					},
-				);
+				self.publish_state
+					.insert(id, PublishState::Ack { response });
 
 				// Generate the first attempt.
 				self.outgoing.push_back(
@@ -296,18 +270,8 @@ impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, Un
 			}
 			QoS::ExactlyOnce => {
 				let id = self.generate_publish_id();
-				self.publish_state.insert(
-					id,
-					PublishState::Rec {
-						topic: topic.clone(),
-						payload: payload.clone(),
-						retain,
-						qos,
-						response,
-						attempts: 1,
-						created_at: Instant::now(),
-					},
-				);
+				self.publish_state
+					.insert(id, PublishState::Rec { response });
 
 				// Generate the first attempt.
 				self.outgoing.push_back(
