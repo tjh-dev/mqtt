@@ -13,17 +13,6 @@ use std::{
 };
 use tokio::time::Instant;
 
-pub trait Sender<T> {
-	fn send(self, t: T) -> Result<(), T>;
-}
-
-impl<T> Sender<T> for ResponseTx<T> {
-	#[inline]
-	fn send(self, t: T) -> Result<(), T> {
-		self.send(t)
-	}
-}
-
 #[derive(Debug)]
 pub enum StateError {
 	Unsolicited(PacketType),
@@ -35,20 +24,20 @@ pub enum StateError {
 }
 
 #[derive(Debug)]
-pub struct ClientState<T, PublishResponse, SubscribeResponse> {
+pub struct ClientState<PubTx, PubResp, SubResp> {
 	/// Active subscriptions. All incoming packets are matched against these
 	/// filters.
-	active_subscriptions: Vec<Subscription<T>>,
+	active_subscriptions: Vec<Subscription<PubTx>>,
 
 	pub outgoing: VecDeque<Packet>,
 
 	/// Incoming Publish packets.
 	pub incoming: HashMap<PacketId, packets::Publish>,
 
-	publish_state: HashMap<PacketId, OutgoingPublish<PublishResponse>>,
-	subscribe_state: HashMap<PacketId, SubscribeState<T, SubscribeResponse>>,
+	publish_state: HashMap<PacketId, OutgoingPublish<PubResp>>,
+	subscribe_state: HashMap<PacketId, SubscribeState<PubTx, SubResp>>,
 	unsubscribe_state: HashMap<PacketId, UnsubscribeState>,
-	resubscribe_state: Option<(PacketId, ResponseTx<()>)>,
+	resubscribe_state: Option<(PacketId, SubResp)>,
 
 	publish_packet_id: WrappingNonZeroU16,
 	subscribe_packet_id: WrappingNonZeroU16,
@@ -106,7 +95,7 @@ struct UnsubscribeState {
 	expires: Instant,
 }
 
-impl<T, PR, SR> Default for ClientState<T, PR, SR> {
+impl<PubTx, PubResp, SubResp> Default for ClientState<PubTx, PubResp, SubResp> {
 	fn default() -> Self {
 		Self {
 			active_subscriptions: Vec::new(),
@@ -126,13 +115,8 @@ impl<T, PR, SR> Default for ClientState<T, PR, SR> {
 	}
 }
 
-impl<T, PublishResponse, SubscribeResponse> ClientState<T, PublishResponse, SubscribeResponse> {
-	pub fn subscribe(
-		&mut self,
-		filters: Vec<(FilterBuf, QoS)>,
-		channel: T,
-		response: SubscribeResponse,
-	) {
+impl<PubTx, PubRep, SubResp> ClientState<PubTx, PubRep, SubResp> {
+	pub fn subscribe(&mut self, filters: Vec<(FilterBuf, QoS)>, channel: PubTx, response: SubResp) {
 		// Generate an ID for the subscribe packet.
 		let id = self.generate_subscribe_id();
 		self.subscribe_state.insert(
@@ -229,7 +213,7 @@ impl<T, PublishResponse, SubscribeResponse> ClientState<T, PublishResponse, Subs
 		!self.active_subscriptions.is_empty()
 	}
 
-	pub fn generate_resubscribe(&mut self, response_tx: ResponseTx<()>) -> Option<Packet> {
+	pub fn generate_resubscribe(&mut self, response_tx: SubResp) -> Option<Packet> {
 		if !self.active_subscriptions.is_empty() {
 			let mut filters = Vec::new();
 			for Subscription { filter, qos, .. } in self.active_subscriptions.iter() {
@@ -265,9 +249,7 @@ impl<T, PublishResponse, SubscribeResponse> ClientState<T, PublishResponse, Subs
 	}
 }
 
-impl<T: fmt::Debug, R, SubscribeResponse: Sender<Vec<(FilterBuf, QoS)>>>
-	ClientState<T, R, SubscribeResponse>
-{
+impl<PubTx: fmt::Debug, PubResp, SubResp> ClientState<PubTx, PubResp, SubResp> {
 	pub fn pubrel(&mut self, id: PacketId) -> Result<Publish, StateError> {
 		let Some(publish) = self.incoming.remove(&id) else {
 			return Err(StateError::Unsolicited(PacketType::PubRel));
@@ -277,7 +259,7 @@ impl<T: fmt::Debug, R, SubscribeResponse: Sender<Vec<(FilterBuf, QoS)>>>
 	}
 
 	/// Finds a channel to publish messages for `topic` to.
-	pub fn find_publish_channel(&self, topic: &Topic) -> Option<&T> {
+	pub fn find_publish_channel(&self, topic: &Topic) -> Option<&PubTx> {
 		let start = Instant::now();
 
 		let Some((filter, score, channel)) = self
@@ -305,21 +287,15 @@ impl<T: fmt::Debug, R, SubscribeResponse: Sender<Vec<(FilterBuf, QoS)>>>
 	}
 }
 
-impl<T: Clone + fmt::Debug, R, SubscribeResponse: Sender<Vec<(FilterBuf, QoS)>>>
-	ClientState<T, R, SubscribeResponse>
-{
-	pub fn suback(&mut self, ack: SubAck) -> Result<(), StateError> {
+impl<PubTx: Clone + fmt::Debug, PubResp, SubResp> ClientState<PubTx, PubResp, SubResp> {
+	pub fn suback(&mut self, ack: SubAck) -> Result<(SubResp, Vec<(FilterBuf, QoS)>), StateError> {
 		let SubAck { id, result } = ack;
 		// Check that this isn't a resubscribe.
 		if let Some((resub_id, channel)) = self.resubscribe_state.take() {
 			tracing::error!("Found re-subscribe packet, expected SubAck {{ id: {id} }}");
 			if resub_id == id {
-				if channel.send(()).is_err() {
-					tracing::warn!("response channel for resubscribe closed");
-				}
 				self.resubscribe_state = None;
-				tracing::info!("resubscribe successful");
-				return Ok(());
+				return Ok((channel, Vec::new()));
 			}
 		}
 		// Ascertain that we have an active subscription request for the SubAck
@@ -371,29 +347,25 @@ impl<T: Clone + fmt::Debug, R, SubscribeResponse: Sender<Vec<(FilterBuf, QoS)>>>
 			tracing::debug!(filters = ?self.active_subscriptions);
 		}
 
-		let _ = response
-			.send(
-				successful_filters
-					.into_iter()
-					.map(|(f, _, q)| (f, q))
-					.collect(),
-			)
-			.is_err();
-
-		// We don't generate any packets in response to SubAck.
-		Ok(())
+		Ok((
+			response,
+			successful_filters
+				.into_iter()
+				.map(|(f, _, q)| (f, q))
+				.collect(),
+		))
 	}
 }
 
-impl<T, R: Sender<()>, SubscribeResponse> ClientState<T, R, SubscribeResponse> {
+impl<PubTx, PubResp, SubResp> ClientState<PubTx, PubResp, SubResp> {
 	pub fn publish(
 		&mut self,
 		topic: TopicBuf,
 		payload: Bytes,
 		qos: QoS,
 		retain: bool,
-		response: R,
-	) {
+		response: PubResp,
+	) -> Option<PubResp> {
 		match qos {
 			QoS::AtMostOnce => {
 				// Just queue the Publish packet.
@@ -405,7 +377,7 @@ impl<T, R: Sender<()>, SubscribeResponse> ClientState<T, R, SubscribeResponse> {
 					}
 					.into(),
 				);
-				let _ = response.send(());
+				Some(response)
 			}
 			QoS::AtLeastOnce => {
 				let id = self.generate_publish_id();
@@ -433,6 +405,8 @@ impl<T, R: Sender<()>, SubscribeResponse> ClientState<T, R, SubscribeResponse> {
 					}
 					.into(),
 				);
+
+				None
 			}
 			QoS::ExactlyOnce => {
 				let id = self.generate_publish_id();
@@ -460,21 +434,22 @@ impl<T, R: Sender<()>, SubscribeResponse> ClientState<T, R, SubscribeResponse> {
 					}
 					.into(),
 				);
+
+				None
 			}
 		}
 	}
 
-	/// Handles a PubAck packet.
-	pub fn puback(&mut self, id: NonZeroU16) -> Result<(), StateError> {
+	/// Handles an incoming PubAck packet.
+	pub fn puback(&mut self, id: NonZeroU16) -> Result<PubResp, StateError> {
 		let Some(OutgoingPublish::Ack { response, .. }) = self.publish_state.remove(&id) else {
 			return Err(StateError::Unsolicited(PacketType::PubAck));
 		};
 
-		let _ = response.send(());
-		Ok(())
+		Ok(response)
 	}
 
-	/// Handles a PubRec packet.
+	/// Handles an incoming PubRec packet.
 	pub fn pubrec(&mut self, id: NonZeroU16) -> Result<(), StateError> {
 		let Some(OutgoingPublish::Rec { response, .. }) = self.publish_state.remove(&id) else {
 			return Err(StateError::Unsolicited(PacketType::PubRec));
@@ -482,16 +457,18 @@ impl<T, R: Sender<()>, SubscribeResponse> ClientState<T, R, SubscribeResponse> {
 
 		self.publish_state
 			.insert(id, OutgoingPublish::Comp { response });
+
+		// Queue an incoming PubRel packet.
 		self.outgoing.push_back(packets::PubRel { id }.into());
 		Ok(())
 	}
 
-	pub fn pubcomp(&mut self, id: NonZeroU16) -> Result<(), StateError> {
+	/// Handles an incoming PubComp packet.
+	pub fn pubcomp(&mut self, id: NonZeroU16) -> Result<PubResp, StateError> {
 		let Some(OutgoingPublish::Comp { response }) = self.publish_state.remove(&id) else {
 			return Err(StateError::Unsolicited(PacketType::PubComp));
 		};
 
-		let _ = response.send(());
-		Ok(())
+		Ok(response)
 	}
 }

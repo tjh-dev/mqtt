@@ -195,7 +195,8 @@ async fn process_packet(state: &mut ClientState, packet: Packet) -> Result<(), S
 			}
 		},
 		Packet::PubAck(packets::PubAck { id }) => {
-			state.puback(id)?;
+			let response = state.puback(id)?;
+			let _ = response.send(());
 			Ok(())
 		}
 		Packet::PubRec(packets::PubRec { id }) => {
@@ -220,10 +221,15 @@ async fn process_packet(state: &mut ClientState, packet: Packet) -> Result<(), S
 			Ok(())
 		}
 		Packet::PubComp(packets::PubComp { id }) => {
-			state.pubcomp(id)?;
+			let response = state.pubcomp(id)?;
+			let _ = response.send(());
 			Ok(())
 		}
-		Packet::SubAck(ack) => state.suback(ack),
+		Packet::SubAck(ack) => {
+			let (sender, payload) = state.suback(ack)?;
+			let _ = sender.send(payload);
+			Ok(())
+		}
 		Packet::UnsubAck(ack) => state.unsuback(ack),
 		Packet::PingResp => {
 			let Some(req) = state.pingreq_state.take() else {
@@ -256,7 +262,9 @@ async fn process_command(state: &mut ClientState, command: Command) -> Result<bo
 			retain,
 			response_tx,
 		}) => {
-			state.publish(topic, payload, qos, retain, response_tx);
+			if let Some(response) = state.publish(topic, payload, qos, retain, response_tx) {
+				let _ = response.send(());
+			};
 		}
 		Command::Subscribe(SubscribeCommand {
 			filters,
