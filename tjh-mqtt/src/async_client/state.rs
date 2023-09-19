@@ -116,7 +116,7 @@ impl<PubTx, PubResp, SubResp, UnSubResp> Default
 	}
 }
 
-impl<PubTx, PubRep, SubResp, UnSubResp> ClientState<PubTx, PubRep, SubResp, UnSubResp> {
+impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, UnSubResp> {
 	pub fn subscribe(&mut self, filters: Vec<(FilterBuf, QoS)>, channel: PubTx, response: SubResp) {
 		// Generate an ID for the subscribe packet.
 		let id = self.generate_subscribe_id();
@@ -247,121 +247,7 @@ impl<PubTx, PubRep, SubResp, UnSubResp> ClientState<PubTx, PubRep, SubResp, UnSu
 
 		expired_pingreq || expired_subscribes || expired_unsubscribes
 	}
-}
 
-impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
-	ClientState<PubTx, PubResp, SubResp, UnSubResp>
-{
-	pub fn pubrel(&mut self, id: PacketId) -> Result<Publish, StateError> {
-		let Some(publish) = self.incoming.remove(&id) else {
-			return Err(StateError::Unsolicited(PacketType::PubRel));
-		};
-
-		Ok(publish)
-	}
-
-	/// Finds a channel to publish messages for `topic` to.
-	pub fn find_publish_channel(&self, topic: &Topic) -> Option<&PubTx> {
-		let start = Instant::now();
-
-		let Some((filter, score, channel)) = self
-			.active_subscriptions
-			.iter()
-			.filter_map(
-				|Subscription {
-				     filter, channel, ..
-				 }| {
-					filter
-						.matches_topic(topic)
-						.map(|score| (filter, score.score(), channel))
-				},
-			)
-			.max_by_key(|(_, score, _)| *score)
-		else {
-			tracing::error!(topic = ?topic, subscriptions = ?self.active_subscriptions, "failed to find channel for");
-			return None;
-		};
-
-		let time = start.elapsed();
-		tracing::debug!(topic = ?topic, filter = ?filter, score = ?score, time = ?time, "found channel for");
-
-		Some(channel)
-	}
-}
-
-impl<PubTx: Clone + fmt::Debug, PubResp, SubResp, UnSubResp>
-	ClientState<PubTx, PubResp, SubResp, UnSubResp>
-{
-	pub fn suback(&mut self, ack: SubAck) -> Result<(SubResp, Vec<(FilterBuf, QoS)>), StateError> {
-		let SubAck { id, result } = ack;
-		// Check that this isn't a resubscribe.
-		if let Some((resub_id, channel)) = self.resubscribe_state.take() {
-			tracing::error!("Found re-subscribe packet, expected SubAck {{ id: {id} }}");
-			if resub_id == id {
-				self.resubscribe_state = None;
-				return Ok((channel, Vec::new()));
-			}
-		}
-		// Ascertain that we have an active subscription request for the SubAck
-		// packet ID.
-		//
-		let Some(subscribe_state) = self.subscribe_state.remove(&id) else {
-			return Err(StateError::Unsolicited(PacketType::SubAck));
-		};
-
-		let SubscribeState {
-			filters,
-			channel,
-			response,
-			..
-		} = subscribe_state;
-
-		if result.len() != filters.len() {
-			return Err(StateError::ProtocolError(
-				"SubAck payload length does not correspond to Subscribe payload length",
-			));
-		}
-
-		let successful_filters: Vec<_> = result
-			.into_iter()
-			.zip(filters)
-			.filter_map(|(result_qos, (requested_filter, requested_qos))| {
-				let qos = result_qos.ok()?;
-				Some((requested_filter, requested_qos, qos))
-			})
-			.collect();
-
-		'outer: for (filter, _, qos) in &successful_filters {
-			// If the filter matches a already subscribed filter, replace it.
-			for sub in self.active_subscriptions.iter_mut() {
-				if &sub.filter == filter {
-					sub.channel = channel.clone();
-					sub.qos = *qos;
-					continue 'outer;
-				}
-			}
-
-			// Otherwise, append to the set of active subscriptions.
-			self.active_subscriptions.push(Subscription {
-				filter: filter.clone(),
-				qos: *qos,
-				channel: channel.clone(),
-			});
-
-			tracing::debug!(filters = ?self.active_subscriptions);
-		}
-
-		Ok((
-			response,
-			successful_filters
-				.into_iter()
-				.map(|(f, _, q)| (f, q))
-				.collect(),
-		))
-	}
-}
-
-impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, UnSubResp> {
 	pub fn publish(
 		&mut self,
 		topic: TopicBuf,
@@ -474,5 +360,109 @@ impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, Un
 		};
 
 		Ok(response)
+	}
+
+	pub fn pubrel(&mut self, id: PacketId) -> Result<Publish, StateError> {
+		let Some(publish) = self.incoming.remove(&id) else {
+			return Err(StateError::Unsolicited(PacketType::PubRel));
+		};
+
+		Ok(publish)
+	}
+
+	/// Finds a channel to publish messages for `topic` to.
+	pub fn find_publish_channel(&self, topic: &Topic) -> Option<&PubTx> {
+		let start = Instant::now();
+
+		let Some((filter, score, channel)) = self
+			.active_subscriptions
+			.iter()
+			.filter_map(
+				|Subscription {
+				     filter, channel, ..
+				 }| {
+					filter
+						.matches_topic(topic)
+						.map(|score| (filter, score.score(), channel))
+				},
+			)
+			.max_by_key(|(_, score, _)| *score)
+		else {
+			tracing::error!(topic = ?topic, "failed to find channel for");
+			return None;
+		};
+
+		let time = start.elapsed();
+		tracing::debug!(topic = ?topic, filter = ?filter, score = ?score, time = ?time, "found channel for");
+
+		Some(channel)
+	}
+}
+
+impl<PubTx: Clone, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, UnSubResp> {
+	/// Handles an incoming SubAck packet.
+	pub fn suback(&mut self, ack: SubAck) -> Result<(SubResp, Vec<(FilterBuf, QoS)>), StateError> {
+		let SubAck { id, result } = ack;
+
+		// Check that this isn't a resubscribe.
+		if let Some((resub_id, channel)) = self.resubscribe_state.take() {
+			if resub_id == id {
+				self.resubscribe_state = None;
+				return Ok((channel, Vec::new()));
+			}
+		}
+		// Ascertain that we have an active subscription request for the SubAck
+		// packet ID.
+		let Some(subscribe_state) = self.subscribe_state.remove(&id) else {
+			return Err(StateError::Unsolicited(PacketType::SubAck));
+		};
+
+		let SubscribeState {
+			filters,
+			channel,
+			response,
+			..
+		} = subscribe_state;
+
+		if result.len() != filters.len() {
+			return Err(StateError::ProtocolError(
+				"SubAck payload length does not correspond to Subscribe payload length",
+			));
+		}
+
+		let successful_filters: Vec<_> = result
+			.into_iter()
+			.zip(filters)
+			.filter_map(|(result_qos, (requested_filter, requested_qos))| {
+				let qos = result_qos.ok()?;
+				Some((requested_filter, requested_qos, qos))
+			})
+			.collect();
+
+		'outer: for (filter, _, qos) in &successful_filters {
+			// If the filter matches a already subscribed filter, replace it.
+			for sub in self.active_subscriptions.iter_mut() {
+				if &sub.filter == filter {
+					sub.channel = channel.clone();
+					sub.qos = *qos;
+					continue 'outer;
+				}
+			}
+
+			// Otherwise, append to the set of active subscriptions.
+			self.active_subscriptions.push(Subscription {
+				filter: filter.clone(),
+				qos: *qos,
+				channel: channel.clone(),
+			});
+		}
+
+		Ok((
+			response,
+			successful_filters
+				.into_iter()
+				.map(|(f, _, q)| (f, q))
+				.collect(),
+		))
 	}
 }
