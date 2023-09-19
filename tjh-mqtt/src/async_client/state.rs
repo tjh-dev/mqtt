@@ -4,7 +4,6 @@ use crate::{
 	FilterBuf, Packet, PacketId, PacketType, QoS, Topic, TopicBuf,
 };
 use bytes::Bytes;
-use core::fmt;
 use std::{
 	collections::{HashMap, VecDeque},
 	num::NonZeroU16,

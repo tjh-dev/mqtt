@@ -206,10 +206,11 @@ async fn process_packet(state: &mut ClientState, packet: Packet) -> Result<(), S
 		}
 		Packet::PubRel(packets::PubRel { id }) => {
 			let Ok(publish) = state.pubrel(id) else {
-				// TODO: Fix
-				state.outgoing.push_back(packets::PubComp { id }.into());
-				return Ok(());
+				return Err(StateError::ProtocolError(
+					"received PubRel for unknown Publish id",
+				));
 			};
+
 			let Some(channel) = state.find_publish_channel(publish.topic()) else {
 				return Err(StateError::DeliveryFailure(publish));
 			};
@@ -218,6 +219,10 @@ async fn process_packet(state: &mut ClientState, packet: Packet) -> Result<(), S
 				state.incoming.insert(id, publish.0);
 				return Err(StateError::HardDeliveryFailure);
 			};
+
+			// We've successfully passed on the Publish message. Queue up a PubComp
+			// packet
+			state.outgoing.push_back(packets::PubComp { id }.into());
 
 			Ok(())
 		}
@@ -283,9 +288,6 @@ async fn process_command(state: &mut ClientState, command: Command) -> Result<bo
 			response_tx,
 		}) => {
 			state.unsubscribe(filters, response_tx);
-		}
-		Command::PublishComplete { id } => {
-			state.outgoing.push_back(packets::PubComp { id }.into());
 		}
 	}
 	Ok(false)

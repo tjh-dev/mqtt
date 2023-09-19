@@ -6,20 +6,14 @@ use crate::{
 	},
 	TopicBuf,
 };
-use crate::{FilterBuf, PacketId, QoS};
+use crate::{FilterBuf, QoS};
 use bytes::Bytes;
-use std::ops;
 use tokio::sync::oneshot;
 
 #[derive(Debug)]
 pub struct Message {
 	pub topic: TopicBuf,
 	pub payload: Bytes,
-}
-#[derive(Debug)]
-pub struct MessageGuard {
-	msg: Option<Message>,
-	sig: Option<(PacketId, CommandTx)>,
 }
 
 #[derive(Debug)]
@@ -44,7 +38,7 @@ impl Subscription {
 	/// }
 	/// ```
 	#[inline]
-	pub async fn recv(&mut self) -> Option<MessageGuard> {
+	pub async fn recv(&mut self) -> Option<Message> {
 		let Some(next_message) = self.rx.recv().await else {
 			// All the matching senders for the channel have been closed or dropped.
 			//
@@ -54,20 +48,15 @@ impl Subscription {
 		};
 
 		match next_message {
-			crate::packets::Publish::AtMostOnce { topic, payload, .. } => Some(MessageGuard {
-				msg: Some(Message { topic, payload }),
-				sig: None,
-			}),
-			crate::packets::Publish::AtLeastOnce { topic, payload, .. } => Some(MessageGuard {
-				msg: Some(Message { topic, payload }),
-				sig: None,
-			}),
-			crate::packets::Publish::ExactlyOnce {
-				topic, payload, id, ..
-			} => Some(MessageGuard {
-				msg: Some(Message { topic, payload }),
-				sig: Some((id, self.tx.clone())),
-			}),
+			crate::packets::Publish::AtMostOnce { topic, payload, .. } => {
+				Some(Message { topic, payload })
+			}
+			crate::packets::Publish::AtLeastOnce { topic, payload, .. } => {
+				Some(Message { topic, payload })
+			}
+			crate::packets::Publish::ExactlyOnce { topic, payload, .. } => {
+				Some(Message { topic, payload })
+			}
 		}
 	}
 
@@ -95,37 +84,6 @@ impl Subscription {
 	#[inline]
 	pub fn filters(&self) -> &[(FilterBuf, QoS)] {
 		&self.filters
-	}
-}
-
-impl MessageGuard {
-	/// Mark the message as complete and take the contents.
-	///
-	/// For messages published with a Quality of Service of ExactlyOnce, this
-	/// will trigger a PubComp message to be sent to the Server.
-	#[inline]
-	pub fn complete(mut self) -> Message {
-		if let Some((id, tx)) = self.sig.take() {
-			let _ = tx.send(Command::PublishComplete { id });
-		}
-		self.msg.take().unwrap()
-	}
-}
-
-impl Drop for MessageGuard {
-	#[inline]
-	fn drop(&mut self) {
-		if let Some((id, tx)) = self.sig.take() {
-			let _ = tx.send(Command::PublishComplete { id });
-		}
-	}
-}
-
-impl ops::Deref for MessageGuard {
-	type Target = Message;
-	#[inline]
-	fn deref(&self) -> &Self::Target {
-		self.msg.as_ref().unwrap()
 	}
 }
 

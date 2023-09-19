@@ -1,5 +1,5 @@
 use super::PublishTx;
-use crate::{FilterBuf, PacketId, QoS, TopicBuf};
+use crate::{FilterBuf, QoS, TopicBuf};
 use bytes::Bytes;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
 
@@ -12,7 +12,6 @@ pub enum Command {
 	Publish(PublishCommand),
 	Subscribe(SubscribeCommand),
 	Unsubscribe(UnsubscribeCommand),
-	PublishComplete { id: PacketId },
 	Shutdown,
 }
 

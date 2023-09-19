@@ -15,7 +15,7 @@ use crate::{
 use std::{ops::ControlFlow::Break, time::Duration};
 use tokio::{net::TcpStream, sync::mpsc, task::JoinHandle};
 
-pub use client::{Client, Message, MessageGuard, Subscription};
+pub use client::{Client, Message, Subscription};
 
 pub type PublishTx = mpsc::Sender<packets::Publish>;
 pub type PublishRx = mpsc::Receiver<packets::Publish>;
