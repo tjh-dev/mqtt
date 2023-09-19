@@ -16,7 +16,7 @@ async fn main() -> mqtt::Result<()> {
 	let Arguments { command, qos, .. } = arguments;
 
 	// Create the MQTT client.
-	let (client, handle) = mqtt::async_client::client(options);
+	let (client, handle) = mqtt::async_client::tcp_client(options);
 
 	match command {
 		Commands::Sub { topics, .. } => {

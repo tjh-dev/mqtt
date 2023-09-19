@@ -44,6 +44,7 @@ impl Client {
 	///
 	/// ```no_run
 	/// # tokio_test::block_on(async {
+	/// # use core::str::from_utf8;
 	/// use tjh_mqtt::async_client;
 	/// let (client, handle) = async_client::client(("localhost", 1883));
 	///

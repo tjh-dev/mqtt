@@ -1,17 +1,11 @@
-use super::state::PublishTx;
+use super::PublishTx;
 use crate::{FilterBuf, PacketId, QoS, TopicBuf};
 use bytes::Bytes;
-use tokio::sync::{
-	mpsc::{UnboundedReceiver, UnboundedSender},
-	oneshot,
-};
+use tokio::sync::{mpsc::UnboundedSender, oneshot};
 
 /// Command responses are sent back to the caller via oneshot::Sender.
 pub type ResponseTx<T> = oneshot::Sender<T>;
-pub type ResponseRx<T> = oneshot::Receiver<T>;
-
 pub type CommandTx = UnboundedSender<Command>;
-pub type CommandRx = UnboundedReceiver<Command>;
 
 #[derive(Debug)]
 pub enum Command {

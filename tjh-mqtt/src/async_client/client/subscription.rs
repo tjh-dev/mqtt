@@ -2,7 +2,7 @@ use super::ClientTaskClosed;
 use crate::{
 	async_client::{
 		command::{Command, CommandTx, UnsubscribeCommand},
-		state::PublishRx,
+		PublishRx,
 	},
 	TopicBuf,
 };

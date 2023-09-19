@@ -11,7 +11,7 @@ pub struct SubscribeFailed;
 // Packet Types
 //
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Connect {
 	pub protocol_name: Cow<'static, str>,
 	pub protocol_level: u8,
