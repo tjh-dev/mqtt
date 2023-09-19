@@ -32,7 +32,7 @@ pub struct ClientState<PubTx, PubResp, SubResp, UnSubResp> {
 	/// Incoming Publish packets.
 	pub incoming: HashMap<PacketId, packets::Publish>,
 
-	publish_state: HashMap<PacketId, OutgoingPublish<PubResp>>,
+	publish_state: HashMap<PacketId, PublishState<PubResp>>,
 	subscribe_state: HashMap<PacketId, SubscribeState<PubTx, SubResp>>,
 	unsubscribe_state: HashMap<PacketId, UnsubscribeState<UnSubResp>>,
 	resubscribe_state: Option<(PacketId, SubResp)>,
@@ -54,7 +54,7 @@ pub struct Subscription<T> {
 }
 
 #[derive(Debug)]
-enum OutgoingPublish<R> {
+enum PublishState<R> {
 	Ack {
 		topic: TopicBuf,
 		payload: Bytes,
@@ -165,7 +165,6 @@ impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, Un
 		Ok(response)
 	}
 
-	#[inline]
 	fn generate_publish_id(&mut self) -> PacketId {
 		loop {
 			self.publish_packet_id += 1;
@@ -179,7 +178,6 @@ impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, Un
 		self.publish_packet_id.get()
 	}
 
-	#[inline]
 	fn generate_subscribe_id(&mut self) -> PacketId {
 		loop {
 			self.subscribe_packet_id += 1;
@@ -193,7 +191,6 @@ impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, Un
 		self.subscribe_packet_id.get()
 	}
 
-	#[inline]
 	fn generate_unsubscribe_id(&mut self) -> PacketId {
 		loop {
 			self.unsubscribe_packet_id += 1;
@@ -272,7 +269,7 @@ impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, Un
 				let id = self.generate_publish_id();
 				self.publish_state.insert(
 					id,
-					OutgoingPublish::Ack {
+					PublishState::Ack {
 						topic: topic.clone(),
 						payload: payload.clone(),
 						retain,
@@ -301,7 +298,7 @@ impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, Un
 				let id = self.generate_publish_id();
 				self.publish_state.insert(
 					id,
-					OutgoingPublish::Rec {
+					PublishState::Rec {
 						topic: topic.clone(),
 						payload: payload.clone(),
 						retain,
@@ -331,7 +328,7 @@ impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, Un
 
 	/// Handles an incoming PubAck packet.
 	pub fn puback(&mut self, id: NonZeroU16) -> Result<PubResp, StateError> {
-		let Some(OutgoingPublish::Ack { response, .. }) = self.publish_state.remove(&id) else {
+		let Some(PublishState::Ack { response, .. }) = self.publish_state.remove(&id) else {
 			return Err(StateError::Unsolicited(PacketType::PubAck));
 		};
 
@@ -340,12 +337,12 @@ impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, Un
 
 	/// Handles an incoming PubRec packet.
 	pub fn pubrec(&mut self, id: NonZeroU16) -> Result<(), StateError> {
-		let Some(OutgoingPublish::Rec { response, .. }) = self.publish_state.remove(&id) else {
+		let Some(PublishState::Rec { response, .. }) = self.publish_state.remove(&id) else {
 			return Err(StateError::Unsolicited(PacketType::PubRec));
 		};
 
 		self.publish_state
-			.insert(id, OutgoingPublish::Comp { response });
+			.insert(id, PublishState::Comp { response });
 
 		// Queue an incoming PubRel packet.
 		self.outgoing.push_back(packets::PubRel { id }.into());
@@ -354,7 +351,7 @@ impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, Un
 
 	/// Handles an incoming PubComp packet.
 	pub fn pubcomp(&mut self, id: NonZeroU16) -> Result<PubResp, StateError> {
-		let Some(OutgoingPublish::Comp { response }) = self.publish_state.remove(&id) else {
+		let Some(PublishState::Comp { response }) = self.publish_state.remove(&id) else {
 			return Err(StateError::Unsolicited(PacketType::PubComp));
 		};
 
