@@ -16,6 +16,7 @@ type ClientState = super::state::ClientState<
 	mpsc::Sender<packets::Publish>,
 	oneshot::Sender<()>,
 	oneshot::Sender<Vec<(FilterBuf, QoS)>>,
+	oneshot::Sender<()>,
 >;
 
 pub async fn client_task(
@@ -230,7 +231,11 @@ async fn process_packet(state: &mut ClientState, packet: Packet) -> Result<(), S
 			let _ = sender.send(payload);
 			Ok(())
 		}
-		Packet::UnsubAck(ack) => state.unsuback(ack),
+		Packet::UnsubAck(ack) => {
+			let response = state.unsuback(ack)?;
+			let _ = response.send(());
+			Ok(())
+		}
 		Packet::PingResp => {
 			let Some(req) = state.pingreq_state.take() else {
 				tracing::error!("unsolicited PingResp");

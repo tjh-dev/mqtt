@@ -1,4 +1,3 @@
-use super::command::ResponseTx;
 use crate::{
 	misc::WrappingNonZeroU16,
 	packets::{self, Publish, SubAck, Subscribe, UnsubAck, Unsubscribe},
@@ -16,7 +15,7 @@ use tokio::time::Instant;
 #[derive(Debug)]
 pub enum StateError {
 	Unsolicited(PacketType),
-	/// The Client recevied a packet that the Server should not send.
+	/// The Client received a packet that the Server should not send.
 	InvalidPacket,
 	ProtocolError(&'static str),
 	DeliveryFailure(Publish),
@@ -24,7 +23,7 @@ pub enum StateError {
 }
 
 #[derive(Debug)]
-pub struct ClientState<PubTx, PubResp, SubResp> {
+pub struct ClientState<PubTx, PubResp, SubResp, UnSubResp> {
 	/// Active subscriptions. All incoming packets are matched against these
 	/// filters.
 	active_subscriptions: Vec<Subscription<PubTx>>,
@@ -36,7 +35,7 @@ pub struct ClientState<PubTx, PubResp, SubResp> {
 
 	publish_state: HashMap<PacketId, OutgoingPublish<PubResp>>,
 	subscribe_state: HashMap<PacketId, SubscribeState<PubTx, SubResp>>,
-	unsubscribe_state: HashMap<PacketId, UnsubscribeState>,
+	unsubscribe_state: HashMap<PacketId, UnsubscribeState<UnSubResp>>,
 	resubscribe_state: Option<(PacketId, SubResp)>,
 
 	publish_packet_id: WrappingNonZeroU16,
@@ -89,13 +88,15 @@ struct SubscribeState<T, R> {
 }
 
 #[derive(Debug)]
-struct UnsubscribeState {
+struct UnsubscribeState<T> {
 	filters: Vec<FilterBuf>,
-	response: ResponseTx<()>,
+	response: T,
 	expires: Instant,
 }
 
-impl<PubTx, PubResp, SubResp> Default for ClientState<PubTx, PubResp, SubResp> {
+impl<PubTx, PubResp, SubResp, UnSubResp> Default
+	for ClientState<PubTx, PubResp, SubResp, UnSubResp>
+{
 	fn default() -> Self {
 		Self {
 			active_subscriptions: Vec::new(),
@@ -115,7 +116,7 @@ impl<PubTx, PubResp, SubResp> Default for ClientState<PubTx, PubResp, SubResp> {
 	}
 }
 
-impl<PubTx, PubRep, SubResp> ClientState<PubTx, PubRep, SubResp> {
+impl<PubTx, PubRep, SubResp, UnSubResp> ClientState<PubTx, PubRep, SubResp, UnSubResp> {
 	pub fn subscribe(&mut self, filters: Vec<(FilterBuf, QoS)>, channel: PubTx, response: SubResp) {
 		// Generate an ID for the subscribe packet.
 		let id = self.generate_subscribe_id();
@@ -133,7 +134,7 @@ impl<PubTx, PubRep, SubResp> ClientState<PubTx, PubRep, SubResp> {
 		self.outgoing.push_back(Subscribe { id, filters }.into());
 	}
 
-	pub fn unsubscribe(&mut self, filters: Vec<FilterBuf>, response: ResponseTx<()>) {
+	pub fn unsubscribe(&mut self, filters: Vec<FilterBuf>, response: UnSubResp) {
 		let id = self.generate_unsubscribe_id();
 		self.unsubscribe_state.insert(
 			id,
@@ -147,7 +148,7 @@ impl<PubTx, PubRep, SubResp> ClientState<PubTx, PubRep, SubResp> {
 		self.outgoing.push_back(Unsubscribe { id, filters }.into());
 	}
 
-	pub fn unsuback(&mut self, unsuback: UnsubAck) -> Result<(), StateError> {
+	pub fn unsuback(&mut self, unsuback: UnsubAck) -> Result<UnSubResp, StateError> {
 		let UnsubAck { id } = unsuback;
 
 		let Some(unsubscribe_state) = self.unsubscribe_state.remove(&id) else {
@@ -162,8 +163,7 @@ impl<PubTx, PubRep, SubResp> ClientState<PubTx, PubRep, SubResp> {
 		self.active_subscriptions
 			.retain(|sub| !filters.contains(&sub.filter));
 
-		let _ = response.send(());
-		Ok(())
+		Ok(response)
 	}
 
 	#[inline]
@@ -249,7 +249,9 @@ impl<PubTx, PubRep, SubResp> ClientState<PubTx, PubRep, SubResp> {
 	}
 }
 
-impl<PubTx: fmt::Debug, PubResp, SubResp> ClientState<PubTx, PubResp, SubResp> {
+impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
+	ClientState<PubTx, PubResp, SubResp, UnSubResp>
+{
 	pub fn pubrel(&mut self, id: PacketId) -> Result<Publish, StateError> {
 		let Some(publish) = self.incoming.remove(&id) else {
 			return Err(StateError::Unsolicited(PacketType::PubRel));
@@ -287,7 +289,9 @@ impl<PubTx: fmt::Debug, PubResp, SubResp> ClientState<PubTx, PubResp, SubResp> {
 	}
 }
 
-impl<PubTx: Clone + fmt::Debug, PubResp, SubResp> ClientState<PubTx, PubResp, SubResp> {
+impl<PubTx: Clone + fmt::Debug, PubResp, SubResp, UnSubResp>
+	ClientState<PubTx, PubResp, SubResp, UnSubResp>
+{
 	pub fn suback(&mut self, ack: SubAck) -> Result<(SubResp, Vec<(FilterBuf, QoS)>), StateError> {
 		let SubAck { id, result } = ack;
 		// Check that this isn't a resubscribe.
@@ -357,7 +361,7 @@ impl<PubTx: Clone + fmt::Debug, PubResp, SubResp> ClientState<PubTx, PubResp, Su
 	}
 }
 
-impl<PubTx, PubResp, SubResp> ClientState<PubTx, PubResp, SubResp> {
+impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, UnSubResp> {
 	pub fn publish(
 		&mut self,
 		topic: TopicBuf,
