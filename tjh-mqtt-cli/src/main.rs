@@ -31,6 +31,7 @@ async fn main() -> mqtt::Result<()> {
 				tokio::spawn(async move {
 					signal::ctrl_c().await?;
 					let timeout = tokio::time::sleep(EXIT_TIMEOUT);
+					tokio::pin!(timeout);
 					tokio::select! {
 						_ = timeout => {
 							tracing::warn!("Unsubscribe command timed-out, exiting");
