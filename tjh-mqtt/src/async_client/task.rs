@@ -31,23 +31,22 @@ pub async fn client_task(
 	// Wait for ConnAck
 	#[rustfmt::skip]
 	let packets::ConnAck { session_present, .. } = tokio::select! {
-	  result = connection.read_packet() => {
-      match result {
-        Ok(Some(Packet::ConnAck(connack))) => {
+		result = connection.read_packet() => {
+			match result {
+				Ok(Some(Packet::ConnAck(connack))) => {
 					tracing::info!(packet = ?connack, "read from stream");
-          if connack.code == 0x80 {
-            return Ok(Continue(()))
-          }
-          // state.connect.clean_session = false;
+					if connack.code == 0x80 {
+						return Ok(Continue(()))
+					}
 					reconnect_delay.reset();
-          connack
-        }
-        _ => return Ok(Continue(())),
-      }
-	  }
-    _ = time::sleep(state.keep_alive) => {
-      return Ok(Continue(()))
-    }
+					connack
+				}
+				_ => return Ok(Continue(())),
+			}
+		}
+		_ = time::sleep(state.keep_alive) => {
+			return Ok(Continue(()))
+		}
 	};
 
 	connected_task(state, command_channel, connection, session_present).await
@@ -75,50 +74,57 @@ async fn connected_task(
 		rx.await?;
 	}
 
-	let mut disconnecting = false;
-	let mut keep_alive = time::interval(state.keep_alive);
-	keep_alive.tick().await;
+	let mut should_shutdown = false;
+	let mut keep_alive = time::interval_at(Instant::now() + state.keep_alive, state.keep_alive);
 
-	while !disconnecting {
+	while !should_shutdown {
 		#[rustfmt::skip]
-    tokio::select! {
-      Some(command) = command_channel.recv() => {
-        match process_command(state, command).await {
-					Ok(should_disconnect) => {
-						disconnecting = should_disconnect;
+		tokio::select! {
+			Some(command) = command_channel.recv() => {
+				match process_command(state, command).await {
+					Ok(shutdown) => {
+						should_shutdown = shutdown;
 					}
 					Err(error) => {
 						tracing::error!(error = ?error, "failed to process command");
 						return Ok(Continue(()))
 					}
 				}
-      }
-      Ok(packet) = connection.read_packet() => {
-        let Some(packet) = packet else {
-          tracing::warn!("connection reset by peer");
-          return Ok(Continue(()))
-        };
+			}
+			Ok(packet) = connection.read_packet() => {
+				let Some(packet) = packet else {
+					tracing::warn!("connection reset by peer");
+					return Ok(Continue(()))
+				};
 
 				tracing::info!(packet = ?packet, "read from stream");
 				if process_packet(state, packet).await.is_err() {
 					return Ok(Continue(()));
 				}
-      }
-      _ = keep_alive.tick() => {
-				if state.outgoing.is_empty() {
-					if state.expired() {
-						tracing::error!("pending requests have exceeded keep_alive");
-						return Ok(Continue(()));
-					}
-					state.pingreq_state = Some(Instant::now());
-					state.outgoing.push_front(Packet::PingReq);
+			}
+			_ = keep_alive.tick() => {
+				if state.expired() {
+					tracing::error!("pending requests have exceeded keep_alive");
+					return Ok(Continue(()));
 				}
-      }
-    }
 
+				// If we are about to send a packet to the Server, we don't need to send a PingReq.
+				if state.outgoing.is_empty() {
+					state.pingreq_state = Some(Instant::now());
+					state.outgoing.push_back(Packet::PingReq);
+				}
+			}
+		}
+
+		let update_keep_alive = !state.outgoing.is_empty();
 		for packet in state.outgoing.drain(..) {
 			tracing::info!(packet = ?packet, "writing to stream");
 			connection.write_packet(&packet).await?;
+		}
+
+		if update_keep_alive {
+			// We've just sent a packet, update the keep alive.
+			keep_alive.reset_at(Instant::now() + state.keep_alive);
 		}
 	}
 
