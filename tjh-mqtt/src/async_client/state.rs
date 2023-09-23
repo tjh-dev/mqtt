@@ -43,6 +43,8 @@ pub struct ClientState<PubTx, PubResp, SubResp, UnSubResp> {
 
 	pub connect: packets::Connect,
 	pub keep_alive: Duration,
+
+	// This is Some if there is a active PingReq request.
 	pub pingreq_state: Option<Instant>,
 }
 

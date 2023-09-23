@@ -31,11 +31,16 @@ impl Subscription {
 	/// Receive the next message from the Subscription.
 	///
 	/// # Example
-	/// ```ignore
-	/// let mut subscription = client.subscribe(("a/b", AtMostOnce)).await?;
-	/// while let Ok(message) = subscription.recv().await {
+	/// ```no_run
+	/// # tokio_test::block_on(async {
+	/// # use core::str::from_utf8;
+	/// # use tjh_mqtt::async_client;
+	/// # let (client, handle) = async_client::tcp_client(("localhost", 1883));
+	/// let mut subscription = client.subscribe("a/b", 2).await.unwrap();
+	/// while let Some(message) = subscription.recv().await {
 	///     println!("{}: {:?}", &message.topic, &message.payload[..]);
 	/// }
+	/// # });
 	/// ```
 	#[inline]
 	pub async fn recv(&mut self) -> Option<Message> {
