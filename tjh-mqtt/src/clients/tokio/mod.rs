@@ -19,7 +19,7 @@ use tokio::{
 	task::JoinHandle,
 };
 
-pub use client::{Client, Filters, FiltersWithQoS, Message, Subscription};
+pub use client::{Client, Message, Subscription};
 
 pub type PublishTx = mpsc::Sender<packets::Publish>;
 pub type PublishRx = mpsc::Receiver<packets::Publish>;
