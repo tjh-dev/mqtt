@@ -1,5 +1,4 @@
 mod client;
-mod command;
 mod holdoff;
 mod mqtt_stream;
 mod packet_stream;
@@ -10,15 +9,29 @@ use super::{ClientState, StateError};
 use crate::{
 	clients::tokio::mqtt_stream::MqttStream,
 	misc::{Credentials, Will},
-	packets,
+	packets::{self, Publish},
+	FilterBuf, QoS,
 };
 use std::{ops::ControlFlow::Break, time::Duration};
-use tokio::{net::TcpStream, sync::mpsc, task::JoinHandle};
+use tokio::{
+	net::TcpStream,
+	sync::{mpsc, oneshot},
+	task::JoinHandle,
+};
 
 pub use client::{Client, Filters, FiltersWithQoS, Message, Subscription};
 
 pub type PublishTx = mpsc::Sender<packets::Publish>;
 pub type PublishRx = mpsc::Receiver<packets::Publish>;
+
+type Command = super::command::Command<
+	mpsc::Sender<Publish>,
+	oneshot::Sender<()>,
+	oneshot::Sender<Vec<(FilterBuf, QoS)>>,
+	oneshot::Sender<()>,
+>;
+type CommandTx = mpsc::UnboundedSender<Command>;
+type CommandRx = mpsc::UnboundedReceiver<Command>;
 
 #[derive(Debug)]
 pub struct Options {

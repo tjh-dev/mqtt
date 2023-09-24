@@ -389,23 +389,19 @@ impl<PubTx: Clone + fmt::Debug, PubResp, SubResp, UnSubResp>
 
 	/// Handles an incoming SubAck packet.
 	pub fn suback(&mut self, ack: SubAck) -> Result<(SubResp, Vec<(FilterBuf, QoS)>), StateError> {
-		tracing::info!("processing {ack:?}");
-
 		let SubAck { id, result } = ack;
 
-		// Ascertain that we have an active subscription request for the SubAck
-		// packet ID.
-		let Some(subscribe_state) = self.subscribe_state.remove(&id) else {
-			tracing::error!("unsoliticted SubAck");
-			return Err(StateError::Unsolicited(PacketType::SubAck));
-		};
+		// Confirm we have an active subscription request for the SubAck packet ID.
+		let subscribe_state = self
+			.subscribe_state
+			.remove(&id)
+			.ok_or(StateError::Unsolicited(PacketType::SubAck))?;
 
 		let SubscribeState {
 			filters, response, ..
 		} = subscribe_state;
 
 		if result.len() != filters.len() {
-			tracing::error!("SubAck length does not match expected payload length");
 			return Err(StateError::ProtocolError(
 				"SubAck payload length does not correspond to Subscribe payload length",
 			));
@@ -438,7 +434,6 @@ impl<PubTx: Clone + fmt::Debug, PubResp, SubResp, UnSubResp>
 			});
 		}
 
-		tracing::info!("SubAck Ok");
 		Ok((
 			response,
 			successful_filters

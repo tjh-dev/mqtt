@@ -1,15 +1,10 @@
-use crate::{
-	clients::tokio::{
-		command::{Command, CommandTx, UnsubscribeCommand},
-		PublishRx,
-	},
-	TopicBuf,
-};
+use crate::clients::command::{Command, UnsubscribeCommand};
+use crate::{clients::tokio::PublishRx, TopicBuf};
 use crate::{FilterBuf, QoS};
 use bytes::Bytes;
 use tokio::sync::oneshot;
 
-use super::ClientError;
+use super::{ClientError, CommandTx};
 
 #[derive(Debug)]
 pub struct Message {
@@ -72,14 +67,14 @@ impl Subscription {
 	/// until a corresponding 'UnsubAck' packet has been recevied.
 	#[tracing::instrument(ret, err)]
 	pub async fn unsubscribe(mut self) -> Result<(), ClientError> {
-		let (response_tx, response_rx) = oneshot::channel();
+		let (response, response_rx) = oneshot::channel();
 
 		// Drain the filters from the Subscription. This will eliminate copying
 		// and prevent the Drop impl from doing anything.
 		let filters = self.filters.drain(..).map(|(f, _)| f).collect();
 		self.tx.send(Command::Unsubscribe(UnsubscribeCommand {
 			filters,
-			response_tx,
+			response,
 		}))?;
 
 		response_rx.await?;
@@ -100,7 +95,7 @@ impl Drop for Subscription {
 			let (tx, _) = oneshot::channel();
 			let _ = self.tx.send(Command::Unsubscribe(UnsubscribeCommand {
 				filters: self.filters.drain(..).map(|(f, _)| f).collect(),
-				response_tx: tx,
+				response: tx,
 			}));
 		}
 	}

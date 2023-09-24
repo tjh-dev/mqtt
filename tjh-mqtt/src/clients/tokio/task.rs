@@ -1,11 +1,7 @@
-use super::{
-	command::{Command, PublishCommand, UnsubscribeCommand},
-	holdoff::HoldOff,
-	mqtt_stream::MqttStream,
-	StateError,
-};
+use super::{holdoff::HoldOff, mqtt_stream::MqttStream, Command, CommandRx, StateError};
 use crate::{
-	clients::tokio::command::SubscribeCommand, packets, FilterBuf, Packet, PacketType, QoS,
+	clients::command::{PublishCommand, SubscribeCommand, UnsubscribeCommand},
+	packets, FilterBuf, Packet, PacketType, QoS,
 };
 use std::ops::{ControlFlow, ControlFlow::Continue};
 use tokio::{
@@ -13,7 +9,6 @@ use tokio::{
 	time::{self, Instant},
 };
 
-type CommandRx = mpsc::UnboundedReceiver<Command>;
 type ClientState = super::ClientState<
 	mpsc::Sender<packets::Publish>,
 	oneshot::Sender<()>,
@@ -277,7 +272,7 @@ async fn process_command(state: &mut ClientState, command: Command) -> Result<bo
 			payload,
 			qos,
 			retain,
-			response_tx,
+			response: response_tx,
 		}) => {
 			if let Some(response) = state.publish(topic, payload, qos, retain, response_tx) {
 				let _ = response.send(());
@@ -285,14 +280,14 @@ async fn process_command(state: &mut ClientState, command: Command) -> Result<bo
 		}
 		Command::Subscribe(SubscribeCommand {
 			filters,
-			publish_tx,
-			response_tx,
+			channel: publish_tx,
+			response: response_tx,
 		}) => {
 			state.subscribe(filters, publish_tx, response_tx);
 		}
 		Command::Unsubscribe(UnsubscribeCommand {
 			filters,
-			response_tx,
+			response: response_tx,
 		}) => {
 			state.unsubscribe(filters, response_tx);
 		}

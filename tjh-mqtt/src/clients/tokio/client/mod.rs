@@ -1,13 +1,15 @@
 mod subscription;
 
-use super::command::{Command, CommandTx, PublishCommand, SubscribeCommand, UnsubscribeCommand};
-use crate::{FilterBuf, InvalidFilter, InvalidTopic, QoS, TopicBuf};
+use super::{Command, CommandTx};
+use crate::{
+	clients::command::{PublishCommand, SubscribeCommand, UnsubscribeCommand},
+	FilterBuf, InvalidFilter, InvalidTopic, QoS, TopicBuf,
+};
 use bytes::Bytes;
 use core::fmt;
+pub use subscription::{Message, Subscription};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
-
-pub use subscription::{Message, Subscription};
 
 #[derive(Clone, Debug)]
 pub struct Client {
@@ -88,8 +90,8 @@ impl Client {
 
 		self.tx.send(Command::Subscribe(SubscribeCommand {
 			filters,
-			publish_tx,
-			response_tx,
+			channel: publish_tx,
+			response: response_tx,
 		}))?;
 
 		let subscribed_filters = response_rx.await?;
@@ -161,7 +163,7 @@ impl Client {
 			payload,
 			qos,
 			retain,
-			response_tx,
+			response: response_tx,
 		}))?;
 
 		response_rx.await?;
@@ -192,7 +194,7 @@ impl Client {
 		let (response_tx, response_rx) = oneshot::channel();
 		self.tx.send(Command::Unsubscribe(UnsubscribeCommand {
 			filters,
-			response_tx,
+			response: response_tx,
 		}))?;
 
 		response_rx.await?;
