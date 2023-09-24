@@ -1,8 +1,5 @@
-mod matches;
-pub use matches::Matches;
-
 use crate::Topic;
-use std::{borrow, ops};
+use std::{borrow, cmp, ops};
 use thiserror::Error;
 
 const LEVEL_SEPARATOR: char = '/';
@@ -21,6 +18,13 @@ pub struct Filter(str);
 /// An owned MQTT topic Filter.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FilterBuf(String);
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Matches {
+	pub exact: usize,
+	pub wildcard: usize,
+	pub multi_wildcard: usize,
+}
 
 #[derive(Debug, Error)]
 pub enum InvalidFilter {
@@ -288,5 +292,26 @@ mod tests {
 				multi_wildcard: 2
 			})
 		);
+	}
+}
+
+impl Matches {
+	#[inline]
+	pub fn score(&self) -> usize {
+		self.exact * 100 + self.wildcard * 10 + self.multi_wildcard
+	}
+}
+
+impl cmp::PartialOrd for Matches {
+	#[inline]
+	fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+		Some(self.cmp(other))
+	}
+}
+
+impl cmp::Ord for Matches {
+	#[inline]
+	fn cmp(&self, other: &Self) -> cmp::Ordering {
+		self.score().cmp(&other.score())
 	}
 }
