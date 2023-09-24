@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand, ValueEnum};
-use tjh_mqtt::{async_client::Options, FilterBuf, QoS};
+use mqtt::{async_client::Options, QoS};
 use std::{io::stdin, process, str::from_utf8, time::Duration};
 use tokio::{io, signal, task::JoinHandle};
 use tracing::subscriber::SetGlobalDefaultError;
@@ -8,7 +8,7 @@ use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 const EXIT_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> tjh_mqtt::Result<()> {
+async fn main() -> mqtt::Result<()> {
 	setup_tracing()?;
 
 	let arguments = Arguments::parse();
@@ -16,32 +16,28 @@ async fn main() -> tjh_mqtt::Result<()> {
 	let Arguments { command, qos, .. } = arguments;
 
 	// Create the MQTT client.
-	let (client, handle) = tjh_mqtt::async_client::client(options);
+	let (client, handle) = mqtt::async_client::tcp_client(options);
 
 	match command {
 		Commands::Sub { topics, .. } => {
-			// Convert the topics into a filters.
-			let mut filters = Vec::with_capacity(topics.len());
-			for topic in topics {
-				filters.push(FilterBuf::new(topic)?);
-			}
+			let qos = qos.into();
+			let unsubscribe_filters = topics.clone();
 
-			// Create a subscription to the provided topic
-			let mut subscription = client
-				.subscribe(filters.iter().cloned().map(|f| (f, qos.into())).collect())
-				.await?;
+			// Create a subscription to the provided topics
+			let mut subscription = client.subscribe((topics, qos), 1).await?;
 
 			let signal_handler: JoinHandle<io::Result<()>> = {
 				let client = client.clone();
 				tokio::spawn(async move {
 					signal::ctrl_c().await?;
 					let timeout = tokio::time::sleep(EXIT_TIMEOUT);
+					tokio::pin!(timeout);
 					tokio::select! {
 						_ = timeout => {
 							tracing::warn!("Unsubscribe command timed-out, exiting");
 							process::exit(1);
 						}
-						_ = client.unsubscribe(filters) => {}
+						_ = client.unsubscribe(unsubscribe_filters) => {}
 					};
 					Ok(())
 				})
@@ -54,6 +50,8 @@ async fn main() -> tjh_mqtt::Result<()> {
 					message.topic,
 					from_utf8(&message.payload).unwrap_or_default()
 				);
+
+				// tokio::time::sleep(Duration::from_millis(100)).await;
 			}
 
 			signal_handler.await??;
@@ -71,7 +69,7 @@ async fn main() -> tjh_mqtt::Result<()> {
 					let payload = payload.as_bytes().to_vec();
 					for _ in 0..count.unwrap_or(1) {
 						client
-							.publish(&topic, payload.clone(), qos.into(), false)
+							.publish(topic.as_str(), payload.clone(), qos.into(), false)
 							.await?;
 					}
 				}
@@ -86,7 +84,9 @@ async fn main() -> tjh_mqtt::Result<()> {
 							}
 						}
 						let buffer = line.unwrap().trim_end_matches('\n').as_bytes().to_vec();
-						client.publish(&topic, buffer, qos.into(), false).await?;
+						client
+							.publish(topic.clone(), buffer, qos.into(), false)
+							.await?;
 					}
 				}
 			}

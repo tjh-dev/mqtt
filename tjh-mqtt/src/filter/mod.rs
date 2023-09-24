@@ -3,6 +3,8 @@ pub use matches::Matches;
 
 use std::{borrow, error, fmt, ops};
 
+use crate::Topic;
+
 const LEVEL_SEPARATOR: char = '/';
 const SINGLE_LEVEL_WILDCARD: char = '+';
 const SINGLE_LEVEL_WILDCARD_STR: &str = "+";
@@ -28,7 +30,8 @@ pub struct FilterError {
 
 #[derive(Debug)]
 pub enum ErrorKind {
-	/// The filter is either more than 65,535 UTF-8 encoded bytes long or empty.
+	/// The filter is either more than 65,535 UTF-8 encoded bytes long, or
+	/// empty.
 	Length,
 	InvalidWildcard,
 	WildcardPosition,
@@ -41,6 +44,7 @@ impl FilterError {
 }
 
 impl fmt::Display for FilterError {
+	#[inline]
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		write!(f, "invalid mqtt filter: {:?}, {}", self.kind, self.message)
 	}
@@ -106,10 +110,9 @@ impl Filter {
 	/// Returns `None` if the topic does not match. If `topic` does match, a
 	/// tuple of the number of levels matched exactly and the number of levels
 	/// matched by wildcards is returned.
-	///
-	pub fn matches_topic(&self, topic: &str) -> Option<Matches> {
+	pub fn matches_topic(&self, topic: &Topic) -> Option<Matches> {
 		let filter_levels = self.as_str().split(LEVEL_SEPARATOR);
-		let mut topic_levels = topic.split(LEVEL_SEPARATOR);
+		let mut topic_levels = topic.levels();
 
 		let mut result = Matches::default();
 
@@ -146,7 +149,7 @@ impl Filter {
 
 	/// Returns `true` if the filter has length of zero bytes.
 	///
-	/// This should *always* be false.
+	/// Empty filters are not valid, so this should *always* be `false`.
 	#[inline]
 	pub fn is_empty(&self) -> bool {
 		let Self(inner) = self;
@@ -180,6 +183,7 @@ impl Filter {
 }
 
 impl Default for &Filter {
+	#[inline]
 	fn default() -> Self {
 		DEFAULT
 	}
@@ -219,6 +223,7 @@ impl FilterBuf {
 }
 
 impl Default for FilterBuf {
+	#[inline]
 	fn default() -> Self {
 		DEFAULT.to_owned()
 	}
@@ -226,6 +231,7 @@ impl Default for FilterBuf {
 
 impl ops::Deref for FilterBuf {
 	type Target = Filter;
+	#[inline]
 	fn deref(&self) -> &Self::Target {
 		let Self(inner) = self;
 		Filter::from_str(inner)
@@ -257,6 +263,8 @@ impl AsRef<Filter> for FilterBuf {
 
 #[cfg(test)]
 mod tests {
+	use crate::Topic;
+
 	use super::{Filter, Matches};
 
 	#[test]
@@ -277,10 +285,10 @@ mod tests {
 	#[test]
 	fn matches_topics() {
 		let filter = Filter::from_static("a/b/#");
-		assert_eq!(filter.matches_topic("/b"), None);
-		assert_eq!(filter.matches_topic("a/b"), None);
+		assert_eq!(filter.matches_topic(Topic::from_static("/b")), None);
+		assert_eq!(filter.matches_topic(Topic::from_static("a/b")), None);
 		assert_eq!(
-			filter.matches_topic("a/b/c"),
+			filter.matches_topic(Topic::from_static("a/b/c")),
 			Some(Matches {
 				exact: 2,
 				wildcard: 0,
@@ -288,7 +296,7 @@ mod tests {
 			})
 		);
 		assert_eq!(
-			filter.matches_topic("a/b/c/d"),
+			filter.matches_topic(Topic::from_static("a/b/c/d")),
 			Some(Matches {
 				exact: 2,
 				wildcard: 0,
@@ -297,11 +305,11 @@ mod tests {
 		);
 
 		let filter = Filter::from_static("+/+/c/#");
-		assert_eq!(filter.matches_topic("/b"), None);
-		assert_eq!(filter.matches_topic("a/b/c"), None);
-		assert_eq!(filter.matches_topic("a/b/cd/e"), None);
+		assert_eq!(filter.matches_topic(Topic::from_static("/b")), None);
+		assert_eq!(filter.matches_topic(Topic::from_static("a/b/c")), None);
+		assert_eq!(filter.matches_topic(Topic::from_static("a/b/cd/e")), None);
 		assert_eq!(
-			filter.matches_topic("//c//"),
+			filter.matches_topic(Topic::from_static("//c//")),
 			Some(Matches {
 				exact: 1,
 				wildcard: 2,

@@ -1,15 +1,16 @@
-use crate::Packet;
+use crate::{packets::ParseError, Packet};
 use bytes::{Buf, BytesMut};
 use std::io::Cursor;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 #[derive(Debug)]
-pub struct Connection<T> {
+pub struct PacketStream<T> {
 	stream: T,
 	buffer: BytesMut,
 }
 
-impl<T> Connection<T> {
+impl<T> PacketStream<T> {
+	/// Create a new `PacketStream` with the given stream and buffer length.
 	pub fn new(stream: T, len: usize) -> Self {
 		Self {
 			stream,
@@ -17,17 +18,19 @@ impl<T> Connection<T> {
 		}
 	}
 
-	fn parse_packet(&mut self) -> Result<Option<Packet>, crate::PacketError> {
-		use crate::PacketError::Incomplete;
+	/// Attempt to parse a single [`Packet`] from the buffered data.
+	fn parse_packet(&mut self) -> Result<Option<Packet>, ParseError> {
+		use ParseError::Incomplete;
 
 		let mut buf = Cursor::new(&self.buffer[..]);
 		match Packet::check(&mut buf) {
-			Ok(_) => {
-				let len = buf.position() as usize;
+			Ok(extent) => {
+				// Rewind the cursor and parse the packet.
 				buf.set_position(0);
-
 				let packet = Packet::parse(&mut buf)?;
-				self.buffer.advance(len);
+
+				// Advance the read buffer.
+				self.buffer.advance(extent as usize);
 				Ok(Some(packet))
 			}
 			Err(Incomplete) => Ok(None),
@@ -36,13 +39,12 @@ impl<T> Connection<T> {
 	}
 }
 
-impl<T: AsyncRead + Unpin> Connection<T> {
+impl<T: AsyncRead + Unpin> PacketStream<T> {
 	/// Read a single [`Packet`] from the underlying stream.
 	pub async fn read_packet(&mut self) -> crate::Result<Option<Packet>> {
 		loop {
 			// Attempt to parse a packet from the buffered data.
 			if let Some(packet) = self.parse_packet()? {
-				tracing::trace!("incoming {packet:?}");
 				return Ok(Some(packet));
 			}
 
@@ -63,21 +65,16 @@ impl<T: AsyncRead + Unpin> Connection<T> {
 	}
 }
 
-impl<T: AsyncWrite + Unpin> Connection<T> {
+impl<T: AsyncWrite + Unpin> PacketStream<T> {
+	/// Write a single [`Packet`] to the underlying stream.
 	pub async fn write_packet(&mut self, packet: &Packet) -> crate::Result<()> {
 		let mut buf = BytesMut::new();
 		packet.serialize_to_bytes(&mut buf).unwrap();
-		tracing::trace!("serialized to {:02x?}", &buf[..]);
 
 		self.stream.write_all(&buf).await?;
 		self.stream.flush().await?;
 
 		tracing::debug!("wrote {packet:?} to stream");
-		Ok(())
-	}
-
-	pub async fn flush(&mut self) -> crate::Result<()> {
-		self.stream.flush().await?;
 		Ok(())
 	}
 }

@@ -1,39 +1,12 @@
-[package]
-name = "tjh-mqtt"
-version = "0.1.0"
-edition = "2021"
-authors = ["tjh <x@tjh.dev>"]
-description = "Experimental MQTT client"
-license = "MIT OR Apache-2.0"
-homepage = "https://github.com/tjh-dev/mqtt"
-repository = "https://github.com/tjh-dev/mqtt"
-documentation = "https://github.com/tjh-dev/mqtt"
-readme = "README.md"
+[workspace]
+resolver = "2"
+members = [
+  "tjh-mqtt",
+  "tjh-mqtt-cli"
+]
 
-[dependencies]
-bytes = "1.4"
-clap = { version = "4.4.1", features = ["derive", "env"], optional = true }
-tokio = { version = "1.32", features = [
-  "net",
-  "io-util",
-  "macros",
-  "sync",
-  "time",
-  "tracing",
-  "rt",
-], optional = true }
-tokio-rustls = { version = "0.24.1", optional = true }
-tracing = { version = "0.1", optional = true }
-tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
-webpki-roots = { version = "0.25.2", optional = true }
-
-[features]
-default = []
-async-client = ["dep:tokio", "dep:tracing"]
-cli = ["async-client", "tls", "tokio/rt", "tokio/signal", "tokio/macros", "dep:clap", "dep:tracing-subscriber"]
-tls = ["dep:tokio-rustls", "dep:webpki-roots"]
-
-[[bin]]
-name = "mqtt"
-path = "src/bin/mqtt.rs"
-required-features = ["cli"]
+[profile.release]
+strip = true
+lto = "fat"
+opt-level = "s"
+panic = "abort"
