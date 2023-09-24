@@ -1,5 +1,5 @@
 use crate::{
-	async_client::{
+	clients::tokio::{
 		command::{Command, CommandTx, UnsubscribeCommand},
 		PublishRx,
 	},

@@ -8,7 +8,7 @@ mod task;
 
 use self::{holdoff::HoldOff, state::ClientState};
 use crate::{
-	async_client::mqtt_stream::MqttStream,
+	clients::tokio::mqtt_stream::MqttStream,
 	misc::{Credentials, Will},
 	packets,
 };

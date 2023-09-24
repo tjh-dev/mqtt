@@ -4,7 +4,9 @@ use super::{
 	mqtt_stream::MqttStream,
 	state::StateError,
 };
-use crate::{async_client::command::SubscribeCommand, packets, FilterBuf, Packet, PacketType, QoS};
+use crate::{
+	clients::tokio::command::SubscribeCommand, packets, FilterBuf, Packet, PacketType, QoS,
+};
 use std::ops::{ControlFlow, ControlFlow::Continue};
 use tokio::{
 	sync::{mpsc, oneshot},

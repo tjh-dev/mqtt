@@ -8,10 +8,7 @@ mod qos;
 mod serde;
 mod topic;
 
-#[cfg(feature = "async-client")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async-client")))]
-pub mod async_client;
-
+pub mod clients;
 pub mod misc;
 pub mod packets;
 

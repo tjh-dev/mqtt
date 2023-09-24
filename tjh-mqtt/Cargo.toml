@@ -21,7 +21,7 @@ webpki-roots = { version = "0.25.2", optional = true }
 
 [features]
 default = []
-async-client = ["dep:tokio", "dep:tokio-test", "dep:tracing"]
+tokio-client = ["dep:tokio", "dep:tokio-test", "dep:tracing"]
 tls = ["dep:tokio-rustls", "dep:webpki-roots"]
 
 [package.metadata.docs.rs]

@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand, ValueEnum};
-use mqtt::{async_client::Options, QoS};
+use mqtt::{clients::tokio::Options, QoS};
 use std::{io::stdin, process, str::from_utf8, time::Duration};
 use tokio::{io, signal, task::JoinHandle};
 use tracing::subscriber::SetGlobalDefaultError;
@@ -16,7 +16,7 @@ async fn main() -> mqtt::Result<()> {
 	let Arguments { command, qos, .. } = arguments;
 
 	// Create the MQTT client.
-	let (client, handle) = mqtt::async_client::tcp_client(options);
+	let (client, handle) = mqtt::clients::tokio::tcp_client(options);
 
 	match command {
 		Commands::Sub { topics, .. } => {
