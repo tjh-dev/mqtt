@@ -17,7 +17,7 @@ impl Matches {
 impl cmp::PartialOrd for Matches {
 	#[inline]
 	fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-		self.score().partial_cmp(&other.score())
+		Some(self.cmp(other))
 	}
 }
 

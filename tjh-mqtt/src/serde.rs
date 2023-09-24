@@ -5,7 +5,7 @@ use std::{io, mem, str::from_utf8};
 #[derive(Debug)]
 pub struct WriteError;
 
-pub fn require(src: &mut io::Cursor<&[u8]>, len: usize) -> Result<(), ParseError> {
+pub fn require(src: &io::Cursor<&[u8]>, len: usize) -> Result<(), ParseError> {
 	if src.remaining() < len {
 		Err(ParseError::Incomplete)
 	} else {
@@ -13,7 +13,7 @@ pub fn require(src: &mut io::Cursor<&[u8]>, len: usize) -> Result<(), ParseError
 	}
 }
 
-pub fn require_mut(dst: &mut impl BufMut, len: usize) -> Result<(), WriteError> {
+pub fn require_mut(dst: &impl BufMut, len: usize) -> Result<(), WriteError> {
 	if dst.remaining_mut() < len {
 		Err(WriteError)
 	} else {
