@@ -35,7 +35,6 @@ pub struct ClientState<PubTx, PubResp, SubResp, UnSubResp> {
 	publish_state: HashMap<PacketId, PublishState<PubResp>>,
 	subscribe_state: HashMap<PacketId, SubscribeState<PubTx, SubResp>>,
 	unsubscribe_state: HashMap<PacketId, UnsubscribeState<UnSubResp>>,
-	resubscribe_state: Option<(PacketId, SubResp)>,
 
 	publish_packet_id: WrappingNonZeroU16,
 	subscribe_packet_id: WrappingNonZeroU16,
@@ -64,8 +63,7 @@ enum PublishState<R> {
 
 #[derive(Debug)]
 struct SubscribeState<T, R> {
-	filters: Vec<(FilterBuf, QoS)>,
-	channel: T,
+	filters: Vec<(FilterBuf, QoS, T)>,
 	response: R,
 	expires: Instant,
 }
@@ -88,7 +86,6 @@ impl<PubTx, PubResp, SubResp, UnSubResp> Default
 			publish_state: Default::default(),
 			subscribe_state: Default::default(),
 			unsubscribe_state: Default::default(),
-			resubscribe_state: None,
 			publish_packet_id: WrappingNonZeroU16::MAX,
 			subscribe_packet_id: WrappingNonZeroU16::MAX,
 			unsubscribe_packet_id: WrappingNonZeroU16::MAX,
@@ -100,23 +97,6 @@ impl<PubTx, PubResp, SubResp, UnSubResp> Default
 }
 
 impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, UnSubResp> {
-	pub fn subscribe(&mut self, filters: Vec<(FilterBuf, QoS)>, channel: PubTx, response: SubResp) {
-		// Generate an ID for the subscribe packet.
-		let id = self.generate_subscribe_id();
-		self.subscribe_state.insert(
-			id,
-			SubscribeState {
-				filters: filters.clone(),
-				channel,
-				response,
-				expires: Instant::now(),
-			},
-		);
-
-		// Generate the packet to send.
-		self.outgoing.push_back(Subscribe { id, filters }.into());
-	}
-
 	pub fn unsubscribe(&mut self, filters: Vec<FilterBuf>, response: UnSubResp) {
 		let id = self.generate_unsubscribe_id();
 		self.unsubscribe_state.insert(
@@ -193,16 +173,37 @@ impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, Un
 		!self.active_subscriptions.is_empty()
 	}
 
-	pub fn generate_resubscribe(&mut self, response_tx: SubResp) -> Option<Packet> {
+	pub fn generate_resubscribe(&mut self, response: SubResp) -> Option<Packet> {
 		if !self.active_subscriptions.is_empty() {
-			let mut filters = Vec::new();
-			for Subscription { filter, qos, .. } in self.active_subscriptions.iter() {
-				filters.push((filter.clone(), *qos));
-			}
+			let filters: Vec<_> = self
+				.active_subscriptions
+				.drain(..)
+				.map(
+					|Subscription {
+					     filter,
+					     qos,
+					     channel,
+					 }| (filter, qos, channel),
+				)
+				.collect();
 
 			let id = self.generate_subscribe_id();
-			let packet = crate::packets::Subscribe { id, filters };
-			self.resubscribe_state = Some((id, response_tx));
+			let packet = crate::packets::Subscribe {
+				id,
+				filters: filters
+					.iter()
+					.map(|(filter, qos, _)| (filter.clone(), *qos))
+					.collect(),
+			};
+
+			self.subscribe_state.insert(
+				id,
+				SubscribeState {
+					filters,
+					response,
+					expires: Instant::now(),
+				},
+			);
 
 			Some(packet.into())
 		} else {
@@ -362,17 +363,29 @@ impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, Un
 }
 
 impl<PubTx: Clone, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, UnSubResp> {
+	pub fn subscribe(&mut self, filters: Vec<(FilterBuf, QoS)>, channel: PubTx, response: SubResp) {
+		// Generate an ID for the subscribe packet.
+		let id = self.generate_subscribe_id();
+		self.subscribe_state.insert(
+			id,
+			SubscribeState {
+				filters: filters
+					.iter()
+					.map(|(filter, qos)| (filter.clone(), *qos, channel.clone()))
+					.collect(),
+				response,
+				expires: Instant::now(),
+			},
+		);
+
+		// Generate the packet to send.
+		self.outgoing.push_back(Subscribe { id, filters }.into());
+	}
+
 	/// Handles an incoming SubAck packet.
 	pub fn suback(&mut self, ack: SubAck) -> Result<(SubResp, Vec<(FilterBuf, QoS)>), StateError> {
 		let SubAck { id, result } = ack;
 
-		// Check that this isn't a resubscribe.
-		if let Some((resub_id, channel)) = self.resubscribe_state.take() {
-			if resub_id == id {
-				self.resubscribe_state = None;
-				return Ok((channel, Vec::new()));
-			}
-		}
 		// Ascertain that we have an active subscription request for the SubAck
 		// packet ID.
 		let Some(subscribe_state) = self.subscribe_state.remove(&id) else {
@@ -380,10 +393,7 @@ impl<PubTx: Clone, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubR
 		};
 
 		let SubscribeState {
-			filters,
-			channel,
-			response,
-			..
+			filters, response, ..
 		} = subscribe_state;
 
 		if result.len() != filters.len() {
@@ -395,13 +405,13 @@ impl<PubTx: Clone, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubR
 		let successful_filters: Vec<_> = result
 			.into_iter()
 			.zip(filters)
-			.filter_map(|(result_qos, (requested_filter, requested_qos))| {
+			.filter_map(|(result_qos, (requested_filter, requested_qos, channel))| {
 				let qos = result_qos.ok()?;
-				Some((requested_filter, requested_qos, qos))
+				Some((requested_filter, requested_qos, qos, channel))
 			})
 			.collect();
 
-		'outer: for (filter, _, qos) in &successful_filters {
+		'outer: for (filter, _, qos, channel) in &successful_filters {
 			// If the filter matches a already subscribed filter, replace it.
 			for sub in self.active_subscriptions.iter_mut() {
 				if &sub.filter == filter {
@@ -423,7 +433,7 @@ impl<PubTx: Clone, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubR
 			response,
 			successful_filters
 				.into_iter()
-				.map(|(f, _, q)| (f, q))
+				.map(|(f, _, q, _)| (f, q))
 				.collect(),
 		))
 	}
