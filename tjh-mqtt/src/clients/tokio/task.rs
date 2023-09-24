@@ -16,7 +16,7 @@ type ClientState = super::ClientState<
 	oneshot::Sender<()>,
 >;
 
-pub async fn client_task(
+pub async fn preconnect_task(
 	state: &mut ClientState,
 	command_channel: &mut CommandRx,
 	connection: &mut MqttStream,
@@ -24,6 +24,9 @@ pub async fn client_task(
 ) -> crate::Result<ControlFlow<(), ()>> {
 	let connect_packet: Packet = state.connect.clone().into();
 	connection.write_packet(&connect_packet).await?;
+
+	let sleep = time::sleep(state.keep_alive);
+	tokio::pin!(sleep);
 
 	// Wait for ConnAck
 	#[rustfmt::skip]
@@ -41,7 +44,7 @@ pub async fn client_task(
 				_ => return Ok(Continue(())),
 			}
 		}
-		_ = time::sleep(state.keep_alive) => {
+		_ = &mut sleep => {
 			return Ok(Continue(()))
 		}
 	};

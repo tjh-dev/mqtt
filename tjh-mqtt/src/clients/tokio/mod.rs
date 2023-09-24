@@ -121,7 +121,7 @@ pub fn tcp_client(options: impl Into<Options>) -> (client::Client, JoinHandle<cr
 			};
 
 			if let Ok(Break(_)) =
-				task::client_task(&mut state, &mut rx, &mut connection, &mut reconnect_delay).await
+				task::preconnect_task(&mut state, &mut rx, &mut connection, &mut reconnect_delay).await
 			{
 				tracing::info!("break from client_task");
 				break Ok(());
