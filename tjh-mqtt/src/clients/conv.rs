@@ -1,7 +1,10 @@
 use crate::{FilterBuf, InvalidFilter, QoS};
 
-pub struct Filters(pub Vec<FilterBuf>);
-pub struct FiltersWithQoS(pub Vec<(FilterBuf, QoS)>);
+/// A collection of FilterBuf.
+pub struct Filters(pub(crate) Vec<FilterBuf>);
+
+/// A collection of (FilterBuf, QoS).
+pub struct FiltersWithQoS(pub(crate) Vec<(FilterBuf, QoS)>);
 
 impl TryFrom<&[&str]> for Filters {
 	type Error = InvalidFilter;
