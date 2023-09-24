@@ -1,3 +1,4 @@
+#![allow(clippy::tabs_in_doc_comments)]
 //! # MQTT
 //!
 //! A library for interacting with the MQTT protocol.
