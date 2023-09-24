@@ -1,16 +1,11 @@
+mod subscription;
+
 use super::command::{Command, CommandTx, PublishCommand, SubscribeCommand, UnsubscribeCommand};
-use crate::{
-	traits::{IntoFilters, IntoTopicBuf},
-	FilterError, IntoFiltersWithQoS, InvalidTopic, QoS, TopicBuf,
-};
+use crate::{FilterBuf, FilterError, InvalidTopic, QoS, TopicBuf};
 use bytes::Bytes;
 use core::fmt;
-use tokio::{
-	sync::{mpsc, oneshot},
-	time::Instant,
-};
+use tokio::sync::{mpsc, oneshot};
 
-mod subscription;
 pub use subscription::{Message, Subscription};
 
 #[derive(Clone, Debug)]
@@ -27,6 +22,9 @@ pub enum ClientError {
 	InvalidFilter(FilterError),
 	InvalidTopic(InvalidTopic),
 }
+
+pub struct Filters(Vec<FilterBuf>);
+pub struct FiltersWithQoS(Vec<(FilterBuf, QoS)>);
 
 impl Client {
 	pub(crate) fn new(tx: CommandTx) -> Self {
@@ -64,20 +62,20 @@ impl Client {
 	///
 	/// [`Subscribe`]: crate::packets::Subscribe
 	/// [`SubAck`]: crate::packets::SubAck
-	#[tracing::instrument(skip(self), ret, err)]
-	pub async fn subscribe<Filters>(
+	pub async fn subscribe<TryIntoFiltersWithQoS, E>(
 		&self,
-		filters: Filters,
+		filters: TryIntoFiltersWithQoS,
 		buffer: usize,
 	) -> Result<Subscription, ClientError>
 	where
-		Filters: IntoFiltersWithQoS + fmt::Debug,
+		TryIntoFiltersWithQoS: TryInto<FiltersWithQoS, Error = E>,
+		ClientError: From<E>,
 	{
-		let start = Instant::now();
+		let FiltersWithQoS(filters) = filters.try_into()?;
 
-		let filters = filters.into_filters_with_qos()?;
 		let (response_tx, response_rx) = oneshot::channel();
 		let (publish_tx, publish_rx) = mpsc::channel(buffer);
+
 		self.tx.send(Command::Subscribe(SubscribeCommand {
 			filters,
 			publish_tx,
@@ -87,7 +85,6 @@ impl Client {
 		let subscribed_filters = response_rx.await?;
 		let subscription = Subscription::new(subscribed_filters, publish_rx, self.tx.clone());
 
-		tracing::debug!("completed in {:?}", start.elapsed());
 		Ok(subscription)
 	}
 
@@ -124,21 +121,20 @@ impl Client {
 	/// [`Publish`]: crate::packets::Publish
 	/// [`PubAck`]: crate::packets::PubAck
 	/// [`PubComp`]: crate::packets::PubComp
-	#[tracing::instrument(skip(self), ret, err)]
-	pub async fn publish<Topic>(
+	pub async fn publish<TryIntoTopic, E>(
 		&self,
-		topic: Topic,
+		topic: TryIntoTopic,
 		payload: impl Into<Bytes> + fmt::Debug,
 		qos: QoS,
 		retain: bool,
 	) -> Result<(), ClientError>
 	where
-		Topic: IntoTopicBuf + fmt::Debug,
+		TryIntoTopic: TryInto<TopicBuf, Error = E>,
+		ClientError: From<E>,
 	{
-		let start = Instant::now();
-
-		let topic: TopicBuf = topic.into_topic_buf()?;
+		let topic: TopicBuf = topic.try_into()?;
 		let (response_tx, response_rx) = oneshot::channel();
+
 		self.tx.send(Command::Publish(PublishCommand {
 			topic,
 			payload: payload.into(),
@@ -148,7 +144,6 @@ impl Client {
 		}))?;
 
 		response_rx.await?;
-		tracing::debug!("completed in {:?}", start.elapsed());
 		Ok(())
 	}
 
@@ -158,14 +153,15 @@ impl Client {
 	///
 	/// [`Unsubscribe`]: crate::packets::Unsubscribe
 	/// [`UnsubAck`]: crate::packets::UnsubAck
-	#[tracing::instrument(skip(self), ret, err)]
-	pub async fn unsubscribe<Filters>(&self, filters: Filters) -> Result<(), ClientError>
+	pub async fn unsubscribe<TryIntoFilters, E>(
+		&self,
+		filters: TryIntoFilters,
+	) -> Result<(), ClientError>
 	where
-		Filters: IntoFilters + fmt::Debug,
+		TryIntoFilters: TryInto<Filters, Error = E>,
+		ClientError: From<E>,
 	{
-		let start = Instant::now();
-
-		let filters = filters.into_filters()?;
+		let Filters(filters) = filters.try_into()?;
 		let (response_tx, response_rx) = oneshot::channel();
 		self.tx.send(Command::Unsubscribe(UnsubscribeCommand {
 			filters,
@@ -173,7 +169,6 @@ impl Client {
 		}))?;
 
 		response_rx.await?;
-		tracing::debug!("completed in {:?}", start.elapsed());
 		Ok(())
 	}
 
@@ -243,3 +238,131 @@ impl From<InvalidTopic> for ClientError {
 }
 
 impl std::error::Error for ClientError {}
+
+impl TryFrom<&[&str]> for Filters {
+	type Error = FilterError;
+	fn try_from(value: &[&str]) -> Result<Self, Self::Error> {
+		let mut filters = Vec::with_capacity(value.len());
+		for s in value.iter() {
+			filters.push(FilterBuf::new(*s)?);
+		}
+		Ok(Self(filters))
+	}
+}
+
+impl TryFrom<&[String]> for Filters {
+	type Error = FilterError;
+	fn try_from(value: &[String]) -> Result<Self, Self::Error> {
+		let mut filters = Vec::with_capacity(value.len());
+		for s in value.iter() {
+			filters.push(FilterBuf::new(s)?);
+		}
+		Ok(Self(filters))
+	}
+}
+
+impl TryFrom<Vec<&str>> for Filters {
+	type Error = FilterError;
+	fn try_from(value: Vec<&str>) -> Result<Self, Self::Error> {
+		let mut filters = Vec::with_capacity(value.len());
+		for s in value.into_iter() {
+			filters.push(FilterBuf::new(s)?);
+		}
+		Ok(Self(filters))
+	}
+}
+
+impl TryFrom<Vec<String>> for Filters {
+	type Error = FilterError;
+	fn try_from(value: Vec<String>) -> Result<Self, Self::Error> {
+		let mut filters = Vec::with_capacity(value.len());
+		for s in value.into_iter() {
+			filters.push(FilterBuf::new(s)?);
+		}
+		Ok(Self(filters))
+	}
+}
+
+impl TryFrom<&str> for FiltersWithQoS {
+	type Error = FilterError;
+	fn try_from(value: &str) -> Result<Self, Self::Error> {
+		let filter = FilterBuf::new(value)?;
+		Ok(Self(vec![(filter, QoS::default())]))
+	}
+}
+
+impl TryFrom<String> for FiltersWithQoS {
+	type Error = FilterError;
+	fn try_from(value: String) -> Result<Self, Self::Error> {
+		let filter = FilterBuf::new(value)?;
+		Ok(Self(vec![(filter, QoS::default())]))
+	}
+}
+
+impl TryFrom<(&str, QoS)> for FiltersWithQoS {
+	type Error = FilterError;
+	fn try_from(value: (&str, QoS)) -> Result<Self, Self::Error> {
+		let (raw_filter, qos) = value;
+		let filter = FilterBuf::new(raw_filter)?;
+		Ok(Self(vec![(filter, qos)]))
+	}
+}
+
+impl TryFrom<(String, QoS)> for FiltersWithQoS {
+	type Error = FilterError;
+	fn try_from(value: (String, QoS)) -> Result<Self, Self::Error> {
+		let (raw_filter, qos) = value;
+		let filter = FilterBuf::new(raw_filter)?;
+		Ok(Self(vec![(filter, qos)]))
+	}
+}
+
+impl TryFrom<Vec<(&str, QoS)>> for FiltersWithQoS {
+	type Error = FilterError;
+	fn try_from(value: Vec<(&str, QoS)>) -> Result<Self, Self::Error> {
+		let mut filters = Vec::with_capacity(value.len());
+		for (raw_filter, qos) in value.into_iter() {
+			let filter = FilterBuf::new(raw_filter)?;
+			filters.push((filter, qos));
+		}
+		Ok(Self(filters))
+	}
+}
+
+impl TryFrom<Vec<(String, QoS)>> for FiltersWithQoS {
+	type Error = FilterError;
+	fn try_from(value: Vec<(String, QoS)>) -> Result<Self, Self::Error> {
+		let mut filters = Vec::with_capacity(value.len());
+		for (raw_filter, qos) in value.into_iter() {
+			let filter = FilterBuf::new(raw_filter)?;
+			filters.push((filter, qos));
+		}
+		Ok(Self(filters))
+	}
+}
+
+impl TryFrom<(Vec<&str>, QoS)> for FiltersWithQoS {
+	type Error = FilterError;
+	fn try_from(value: (Vec<&str>, QoS)) -> Result<Self, Self::Error> {
+		let (raw_filters, qos) = value;
+		let mut filters = Vec::with_capacity(raw_filters.len());
+		for filter in raw_filters.into_iter() {
+			let filter = FilterBuf::new(filter)?;
+			filters.push((filter, qos))
+		}
+		Ok(Self(filters))
+	}
+}
+
+impl TryFrom<(Vec<String>, QoS)> for FiltersWithQoS {
+	type Error = FilterError;
+	fn try_from(value: (Vec<String>, QoS)) -> Result<Self, Self::Error> {
+		let (raw_filters, qos) = value;
+		let mut filters = Vec::with_capacity(raw_filters.len());
+		for filter in raw_filters.into_iter() {
+			let filter = FilterBuf::new(filter)?;
+			filters.push((filter, qos))
+		}
+		Ok(Self(filters))
+	}
+}

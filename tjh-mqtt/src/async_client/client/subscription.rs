@@ -38,7 +38,7 @@ impl Subscription {
 	/// # let (client, handle) = async_client::tcp_client(("localhost", 1883));
 	/// let mut subscription = client.subscribe("a/b", 2).await.unwrap();
 	/// while let Some(message) = subscription.recv().await {
-	///     println!("{}: {:?}", &message.topic, &message.payload[..]);
+	/// 	println!("{}: {:?}", &message.topic, &message.payload[..]);
 	/// }
 	/// # });
 	/// ```

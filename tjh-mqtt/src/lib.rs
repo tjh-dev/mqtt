@@ -6,7 +6,6 @@ mod packet;
 mod qos;
 mod serde;
 mod topic;
-mod traits;
 
 #[cfg(feature = "async-client")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async-client")))]
@@ -20,7 +19,6 @@ pub use self::{
 	packet::{Packet, PacketType},
 	qos::{InvalidQoS, QoS},
 	topic::{InvalidTopic, Topic, TopicBuf},
-	traits::{IntoFilters, IntoFiltersWithQoS, IntoTopicBuf},
 };
 
 pub type PacketId = core::num::NonZeroU16;

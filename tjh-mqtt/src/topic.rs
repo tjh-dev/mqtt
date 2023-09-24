@@ -1,4 +1,3 @@
-use crate::traits::IntoTopicBuf;
 use core::borrow;
 use std::{error, fmt, ops};
 
@@ -156,32 +155,18 @@ impl AsRef<Topic> for TopicBuf {
 	}
 }
 
+impl TryFrom<&str> for TopicBuf {
+	type Error = InvalidTopic;
+	fn try_from(value: &str) -> Result<Self, Self::Error> {
+		TopicBuf::new(value)
+	}
+}
+
 impl TryFrom<String> for TopicBuf {
 	type Error = InvalidTopic;
 	#[inline]
 	fn try_from(value: String) -> Result<Self, Self::Error> {
 		Self::new(value)
-	}
-}
-
-impl IntoTopicBuf for &str {
-	#[inline]
-	fn into_topic_buf(self) -> Result<TopicBuf, InvalidTopic> {
-		TopicBuf::new(self)
-	}
-}
-
-impl IntoTopicBuf for String {
-	#[inline]
-	fn into_topic_buf(self) -> Result<TopicBuf, InvalidTopic> {
-		TopicBuf::new(self)
-	}
-}
-
-impl IntoTopicBuf for TopicBuf {
-	#[inline]
-	fn into_topic_buf(self) -> Result<TopicBuf, InvalidTopic> {
-		Ok(self)
 	}
 }
 
