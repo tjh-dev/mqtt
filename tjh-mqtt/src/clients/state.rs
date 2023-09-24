@@ -4,6 +4,7 @@ use crate::{
 	FilterBuf, Packet, PacketId, PacketType, QoS, Topic, TopicBuf,
 };
 use bytes::Bytes;
+use core::fmt;
 use std::{
 	collections::{HashMap, VecDeque},
 	num::NonZeroU16,
@@ -48,7 +49,7 @@ pub struct ClientState<PubTx, PubResp, SubResp, UnSubResp> {
 }
 
 #[derive(Debug)]
-pub struct Subscription<T> {
+struct Subscription<T> {
 	filter: FilterBuf,
 	qos: QoS,
 	channel: T,
@@ -96,7 +97,9 @@ impl<PubTx, PubResp, SubResp, UnSubResp> Default
 	}
 }
 
-impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, UnSubResp> {
+impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
+	ClientState<PubTx, PubResp, SubResp, UnSubResp>
+{
 	pub fn unsubscribe(&mut self, filters: Vec<FilterBuf>, response: UnSubResp) {
 		let id = self.generate_unsubscribe_id();
 		self.unsubscribe_state.insert(
@@ -362,7 +365,9 @@ impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, Un
 	}
 }
 
-impl<PubTx: Clone, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, UnSubResp> {
+impl<PubTx: Clone + fmt::Debug, PubResp, SubResp, UnSubResp>
+	ClientState<PubTx, PubResp, SubResp, UnSubResp>
+{
 	pub fn subscribe(&mut self, filters: Vec<(FilterBuf, QoS)>, channel: PubTx, response: SubResp) {
 		// Generate an ID for the subscribe packet.
 		let id = self.generate_subscribe_id();
@@ -384,11 +389,14 @@ impl<PubTx: Clone, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubR
 
 	/// Handles an incoming SubAck packet.
 	pub fn suback(&mut self, ack: SubAck) -> Result<(SubResp, Vec<(FilterBuf, QoS)>), StateError> {
+		tracing::info!("processing {ack:?}");
+
 		let SubAck { id, result } = ack;
 
 		// Ascertain that we have an active subscription request for the SubAck
 		// packet ID.
 		let Some(subscribe_state) = self.subscribe_state.remove(&id) else {
+			tracing::error!("unsoliticted SubAck");
 			return Err(StateError::Unsolicited(PacketType::SubAck));
 		};
 
@@ -397,6 +405,7 @@ impl<PubTx: Clone, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubR
 		} = subscribe_state;
 
 		if result.len() != filters.len() {
+			tracing::error!("SubAck length does not match expected payload length");
 			return Err(StateError::ProtocolError(
 				"SubAck payload length does not correspond to Subscribe payload length",
 			));
@@ -429,6 +438,7 @@ impl<PubTx: Clone, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubR
 			});
 		}
 
+		tracing::info!("SubAck Ok");
 		Ok((
 			response,
 			successful_filters

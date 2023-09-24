@@ -3,10 +3,10 @@ mod command;
 mod holdoff;
 mod mqtt_stream;
 mod packet_stream;
-mod state;
 mod task;
 
-use self::{holdoff::HoldOff, state::ClientState};
+use self::holdoff::HoldOff;
+use super::{ClientState, StateError};
 use crate::{
 	clients::tokio::mqtt_stream::MqttStream,
 	misc::{Credentials, Will},

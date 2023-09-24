@@ -2,7 +2,7 @@ use super::{
 	command::{Command, PublishCommand, UnsubscribeCommand},
 	holdoff::HoldOff,
 	mqtt_stream::MqttStream,
-	state::StateError,
+	StateError,
 };
 use crate::{
 	clients::tokio::command::SubscribeCommand, packets, FilterBuf, Packet, PacketType, QoS,
@@ -14,7 +14,7 @@ use tokio::{
 };
 
 type CommandRx = mpsc::UnboundedReceiver<Command>;
-type ClientState = super::state::ClientState<
+type ClientState = super::ClientState<
 	mpsc::Sender<packets::Publish>,
 	oneshot::Sender<()>,
 	oneshot::Sender<Vec<(FilterBuf, QoS)>>,
@@ -60,20 +60,19 @@ async fn connected_task(
 	connection: &mut MqttStream,
 	session_present: bool,
 ) -> crate::Result<ControlFlow<(), ()>> {
+	//
+	// We've just connected to the Server and received a ConnAck packet.
+	//
+	// Check if we should attempt to re-subscribe to all the active topic filters
+	// in the Client's state.
+	//
 	if !session_present && state.has_active_subscriptions() {
-		// Run-reconnect logic.
 		let (tx, rx) = oneshot::channel();
-		connection
-			.write_packet(&state.generate_resubscribe(tx).unwrap())
-			.await?;
-		let Ok(Some(Packet::SubAck(suback))) = connection.read_packet().await else {
-			tracing::error!("failed to read SubAck");
-			return Err("failed to read suback".into());
-		};
-		if state.suback(suback).is_err() {
-			return Ok(Continue(()));
-		};
-		rx.await?;
+		if let Some(packet) = state.generate_resubscribe(tx) {
+			connection.write_packet(&packet).await?;
+		}
+
+		tokio::spawn(async move { tracing::debug!(?rx.await) });
 	}
 
 	let mut should_shutdown = false;
