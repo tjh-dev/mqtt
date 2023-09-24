@@ -35,7 +35,7 @@ impl Client {
 	///
 	/// Upon receiving a corresponding [`SubAck`], the client will return a
 	/// [`Subscription`] which will yield any packets received matching the
-	/// filters. The subscription will buffer upto the provided
+	/// filters. The subscription will buffer upto the specified
 	/// number of messages.
 	///
 	/// # Example
@@ -62,16 +62,25 @@ impl Client {
 	///
 	/// [`Subscribe`]: crate::packets::Subscribe
 	/// [`SubAck`]: crate::packets::SubAck
+	#[inline]
 	pub async fn subscribe<TryIntoFiltersWithQoS, E>(
 		&self,
 		filters: TryIntoFiltersWithQoS,
-		buffer: usize,
+		len: usize,
 	) -> Result<Subscription, ClientError>
 	where
 		TryIntoFiltersWithQoS: TryInto<FiltersWithQoS, Error = E>,
 		ClientError: From<E>,
 	{
-		let FiltersWithQoS(filters) = filters.try_into()?;
+		self.subscribe_impl(filters.try_into()?, len).await
+	}
+
+	async fn subscribe_impl(
+		&self,
+		filters: FiltersWithQoS,
+		buffer: usize,
+	) -> Result<Subscription, ClientError> {
+		let FiltersWithQoS(filters) = filters;
 
 		let (response_tx, response_rx) = oneshot::channel();
 		let (publish_tx, publish_rx) = mpsc::channel(buffer);
@@ -121,6 +130,7 @@ impl Client {
 	/// [`Publish`]: crate::packets::Publish
 	/// [`PubAck`]: crate::packets::PubAck
 	/// [`PubComp`]: crate::packets::PubComp
+	#[inline]
 	pub async fn publish<TryIntoTopic, E>(
 		&self,
 		topic: TryIntoTopic,
@@ -132,12 +142,22 @@ impl Client {
 		TryIntoTopic: TryInto<TopicBuf, Error = E>,
 		ClientError: From<E>,
 	{
-		let topic: TopicBuf = topic.try_into()?;
+		self.publish_impl(topic.try_into()?, payload.into(), qos, retain)
+			.await
+	}
+
+	async fn publish_impl(
+		&self,
+		topic: TopicBuf,
+		payload: Bytes,
+		qos: QoS,
+		retain: bool,
+	) -> Result<(), ClientError> {
 		let (response_tx, response_rx) = oneshot::channel();
 
 		self.tx.send(Command::Publish(PublishCommand {
 			topic,
-			payload: payload.into(),
+			payload,
 			qos,
 			retain,
 			response_tx,
@@ -153,6 +173,7 @@ impl Client {
 	///
 	/// [`Unsubscribe`]: crate::packets::Unsubscribe
 	/// [`UnsubAck`]: crate::packets::UnsubAck
+	#[inline]
 	pub async fn unsubscribe<TryIntoFilters, E>(
 		&self,
 		filters: TryIntoFilters,
@@ -161,7 +182,12 @@ impl Client {
 		TryIntoFilters: TryInto<Filters, Error = E>,
 		ClientError: From<E>,
 	{
-		let Filters(filters) = filters.try_into()?;
+		self.unsubscribe_impl(filters.try_into()?).await
+	}
+
+	async fn unsubscribe_impl(&self, filters: Filters) -> Result<(), ClientError> {
+		let Filters(filters) = filters;
+
 		let (response_tx, response_rx) = oneshot::channel();
 		self.tx.send(Command::Unsubscribe(UnsubscribeCommand {
 			filters,
