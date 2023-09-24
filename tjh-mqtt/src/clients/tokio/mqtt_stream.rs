@@ -7,6 +7,8 @@ use tokio::{
 
 pub trait AsyncReadWrite: AsyncRead + AsyncWrite + Send {}
 impl AsyncReadWrite for TcpStream {}
+
+#[cfg(feature = "tls")]
 impl AsyncReadWrite for tokio_rustls::client::TlsStream<TcpStream> {}
 
 pub struct MqttStream {
