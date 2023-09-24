@@ -131,7 +131,7 @@ async fn process_packet(state: &mut ClientState, packet: Packet) -> Result<(), S
 	use packets::Publish;
 
 	match packet {
-		Packet::Publish(publish) => match publish {
+		Packet::Publish(publish) => match *publish {
 			Publish::AtMostOnce {
 				retain,
 				topic,
@@ -234,7 +234,7 @@ async fn process_packet(state: &mut ClientState, packet: Packet) -> Result<(), S
 			Ok(())
 		}
 		Packet::SubAck(ack) => {
-			let (sender, payload) = state.suback(ack)?;
+			let (sender, payload) = state.suback(*ack)?;
 			let _ = sender.send(payload);
 			Ok(())
 		}

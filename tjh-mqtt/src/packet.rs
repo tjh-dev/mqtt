@@ -10,16 +10,16 @@ use std::io;
 
 #[derive(Debug)]
 pub enum Packet {
-	Connect(Connect),
+	Connect(Box<Connect>),
 	ConnAck(ConnAck),
-	Publish(Publish),
+	Publish(Box<Publish>),
 	PubAck(PubAck),
 	PubRec(PubRec),
 	PubRel(PubRel),
 	PubComp(PubComp),
-	Subscribe(Subscribe),
-	SubAck(SubAck),
-	Unsubscribe(Unsubscribe),
+	Subscribe(Box<Subscribe>),
+	SubAck(Box<SubAck>),
+	Unsubscribe(Box<Unsubscribe>),
 	UnsubAck(UnsubAck),
 	PingReq,
 	PingResp,
@@ -141,7 +141,7 @@ impl Packet {
 impl From<Connect> for Packet {
 	#[inline]
 	fn from(value: Connect) -> Self {
-		Self::Connect(value)
+		Self::Connect(value.into())
 	}
 }
 
@@ -155,27 +155,27 @@ impl From<ConnAck> for Packet {
 impl From<Publish> for Packet {
 	#[inline]
 	fn from(value: Publish) -> Self {
-		Self::Publish(value)
+		Self::Publish(value.into())
 	}
 }
 
 impl From<Subscribe> for Packet {
 	#[inline]
 	fn from(value: Subscribe) -> Self {
-		Self::Subscribe(value)
+		Self::Subscribe(value.into())
 	}
 }
 
 impl From<SubAck> for Packet {
 	#[inline]
 	fn from(value: SubAck) -> Self {
-		Self::SubAck(value)
+		Self::SubAck(value.into())
 	}
 }
 
 impl From<Unsubscribe> for Packet {
 	#[inline]
 	fn from(value: Unsubscribe) -> Self {
-		Self::Unsubscribe(value)
+		Self::Unsubscribe(value.into())
 	}
 }
