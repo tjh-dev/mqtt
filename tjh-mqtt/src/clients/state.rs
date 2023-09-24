@@ -64,7 +64,7 @@ enum PublishState<R> {
 
 #[derive(Debug)]
 struct SubscribeState<T, R> {
-	filters: Vec<(FilterBuf, QoS, T)>,
+	filters: Vec<Subscription<T>>,
 	response: R,
 	expires: Instant,
 }
@@ -178,24 +178,14 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 
 	pub fn generate_resubscribe(&mut self, response: SubResp) -> Option<Packet> {
 		if !self.active_subscriptions.is_empty() {
-			let filters: Vec<_> = self
-				.active_subscriptions
-				.drain(..)
-				.map(
-					|Subscription {
-					     filter,
-					     qos,
-					     channel,
-					 }| (filter, qos, channel),
-				)
-				.collect();
+			let filters: Vec<_> = self.active_subscriptions.drain(..).collect();
 
 			let id = self.generate_subscribe_id();
 			let packet = crate::packets::Subscribe {
 				id,
 				filters: filters
 					.iter()
-					.map(|(filter, qos, _)| (filter.clone(), *qos))
+					.map(|Subscription { filter, qos, .. }| (filter.clone(), *qos))
 					.collect(),
 			};
 
@@ -371,12 +361,17 @@ impl<PubTx: Clone + fmt::Debug, PubResp, SubResp, UnSubResp>
 	pub fn subscribe(&mut self, filters: Vec<(FilterBuf, QoS)>, channel: PubTx, response: SubResp) {
 		// Generate an ID for the subscribe packet.
 		let id = self.generate_subscribe_id();
+
 		self.subscribe_state.insert(
 			id,
 			SubscribeState {
 				filters: filters
 					.iter()
-					.map(|(filter, qos)| (filter.clone(), *qos, channel.clone()))
+					.map(|(filter, qos)| Subscription {
+						filter: filter.clone(),
+						qos: *qos,
+						channel: channel.clone(),
+					})
 					.collect(),
 				response,
 				expires: Instant::now(),
@@ -410,10 +405,19 @@ impl<PubTx: Clone + fmt::Debug, PubResp, SubResp, UnSubResp>
 		let successful_filters: Vec<_> = result
 			.into_iter()
 			.zip(filters)
-			.filter_map(|(result_qos, (requested_filter, requested_qos, channel))| {
-				let qos = result_qos.ok()?;
-				Some((requested_filter, requested_qos, qos, channel))
-			})
+			.filter_map(
+				|(
+					result_qos,
+					Subscription {
+						filter,
+						qos,
+						channel,
+					},
+				)| {
+					let result_qos = result_qos.ok()?;
+					Some((filter, qos, result_qos, channel))
+				},
+			)
 			.collect();
 
 		'outer: for (filter, _, qos, channel) in &successful_filters {
