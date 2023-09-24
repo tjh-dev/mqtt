@@ -88,11 +88,14 @@ impl Client {
 		let (response_tx, response_rx) = oneshot::channel();
 		let (publish_tx, publish_rx) = mpsc::channel(buffer);
 
-		self.tx.send(Command::Subscribe(SubscribeCommand {
-			filters,
-			channel: publish_tx,
-			response: response_tx,
-		}))?;
+		self.tx.send(
+			Command::Subscribe(SubscribeCommand {
+				filters,
+				channel: publish_tx,
+				response: response_tx,
+			})
+			.into(),
+		)?;
 
 		let subscribed_filters = response_rx.await?;
 		let subscription = Subscription::new(subscribed_filters, publish_rx, self.tx.clone());
@@ -158,13 +161,16 @@ impl Client {
 	) -> Result<(), ClientError> {
 		let (response_tx, response_rx) = oneshot::channel();
 
-		self.tx.send(Command::Publish(PublishCommand {
-			topic,
-			payload,
-			qos,
-			retain,
-			response: response_tx,
-		}))?;
+		self.tx.send(
+			Command::Publish(PublishCommand {
+				topic,
+				payload,
+				qos,
+				retain,
+				response: response_tx,
+			})
+			.into(),
+		)?;
 
 		response_rx.await?;
 		Ok(())
@@ -192,10 +198,13 @@ impl Client {
 		let Filters(filters) = filters;
 
 		let (response_tx, response_rx) = oneshot::channel();
-		self.tx.send(Command::Unsubscribe(UnsubscribeCommand {
-			filters,
-			response: response_tx,
-		}))?;
+		self.tx.send(
+			Command::Unsubscribe(UnsubscribeCommand {
+				filters,
+				response: response_tx,
+			})
+			.into(),
+		)?;
 
 		response_rx.await?;
 		Ok(())
@@ -208,7 +217,7 @@ impl Client {
 	/// [`Disconnect`]: crate::packets::Disconnect
 	#[inline]
 	pub async fn disconnect(self) -> Result<(), ClientError> {
-		self.tx.send(Command::Shutdown)?;
+		self.tx.send(Command::Shutdown.into())?;
 		Ok(())
 	}
 }

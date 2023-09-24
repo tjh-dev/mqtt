@@ -77,7 +77,7 @@ async fn connected_task(
 		#[rustfmt::skip]
 		tokio::select! {
 			Some(command) = command_channel.recv() => {
-				match process_command(state, command).await {
+				match process_command(state, *command).await {
 					Ok(shutdown) => {
 						should_shutdown = shutdown;
 					}

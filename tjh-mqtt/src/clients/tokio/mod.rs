@@ -30,8 +30,8 @@ type Command = super::command::Command<
 	oneshot::Sender<Vec<(FilterBuf, QoS)>>,
 	oneshot::Sender<()>,
 >;
-type CommandTx = mpsc::UnboundedSender<Command>;
-type CommandRx = mpsc::UnboundedReceiver<Command>;
+type CommandTx = mpsc::UnboundedSender<Box<Command>>;
+type CommandRx = mpsc::UnboundedReceiver<Box<Command>>;
 
 #[derive(Debug)]
 pub struct Options {

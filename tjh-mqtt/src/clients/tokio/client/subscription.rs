@@ -72,10 +72,8 @@ impl Subscription {
 		// Drain the filters from the Subscription. This will eliminate copying
 		// and prevent the Drop impl from doing anything.
 		let filters = self.filters.drain(..).map(|(f, _)| f).collect();
-		self.tx.send(Command::Unsubscribe(UnsubscribeCommand {
-			filters,
-			response,
-		}))?;
+		self.tx
+			.send(Command::Unsubscribe(UnsubscribeCommand { filters, response }).into())?;
 
 		response_rx.await?;
 		Ok(())
@@ -93,10 +91,13 @@ impl Drop for Subscription {
 	fn drop(&mut self) {
 		if !self.filters.is_empty() {
 			let (tx, _) = oneshot::channel();
-			let _ = self.tx.send(Command::Unsubscribe(UnsubscribeCommand {
-				filters: self.filters.drain(..).map(|(f, _)| f).collect(),
-				response: tx,
-			}));
+			let _ = self.tx.send(
+				Command::Unsubscribe(UnsubscribeCommand {
+					filters: self.filters.drain(..).map(|(f, _)| f).collect(),
+					response: tx,
+				})
+				.into(),
+			);
 		}
 	}
 }
