@@ -1,4 +1,3 @@
-use super::ClientTaskClosed;
 use crate::{
 	async_client::{
 		command::{Command, CommandTx, UnsubscribeCommand},
@@ -9,6 +8,8 @@ use crate::{
 use crate::{FilterBuf, QoS};
 use bytes::Bytes;
 use tokio::sync::oneshot;
+
+use super::ClientError;
 
 #[derive(Debug)]
 pub struct Message {
@@ -70,7 +71,7 @@ impl Subscription {
 	/// This will send an 'Unsubscribe' packet to the broker, and won't return
 	/// until a corresponding 'UnsubAck' packet has been recevied.
 	#[tracing::instrument(ret, err)]
-	pub async fn unsubscribe(mut self) -> Result<(), ClientTaskClosed> {
+	pub async fn unsubscribe(mut self) -> Result<(), ClientError> {
 		let (response_tx, response_rx) = oneshot::channel();
 
 		// Drain the filters from the Subscription. This will eliminate copying

@@ -591,7 +591,7 @@ impl Unsubscribe {
 pub enum ParseError {
 	Incomplete,
 	InvalidQoS,
-	InvalidFilter(filter::FilterError),
+	InvalidFilter(filter::InvalidFilter),
 	InvalidTopic(crate::InvalidTopic),
 	InvalidHeader,
 	ZeroPacketId,
@@ -620,9 +620,9 @@ impl From<crate::InvalidTopic> for ParseError {
 	}
 }
 
-impl From<filter::FilterError> for ParseError {
+impl From<filter::InvalidFilter> for ParseError {
 	#[inline]
-	fn from(value: filter::FilterError) -> Self {
+	fn from(value: filter::InvalidFilter) -> Self {
 		Self::InvalidFilter(value)
 	}
 }

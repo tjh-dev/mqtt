@@ -1,9 +1,9 @@
 mod matches;
 pub use matches::Matches;
 
-use std::{borrow, error, fmt, ops};
-
 use crate::Topic;
+use std::{borrow, ops};
+use thiserror::Error;
 
 const LEVEL_SEPARATOR: char = '/';
 const SINGLE_LEVEL_WILDCARD: char = '+';
@@ -22,49 +22,30 @@ pub struct Filter(str);
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FilterBuf(String);
 
-#[derive(Debug)]
-pub struct FilterError {
-	pub kind: ErrorKind,
-	pub message: &'static str,
+#[derive(Debug, Error)]
+pub enum InvalidFilter {
+	#[error("filter cannot be empty")]
+	Empty,
+	#[error("filter cannont exceed maximum length for an MQTT string (65,535 bytes)")]
+	TooLong,
+	#[error("filter levels cannot contain both wildcard and non-wildcard characters")]
+	InvalidLevel,
+	#[error("filter cannot contain multiple multi-level wildcards")]
+	MultipleMultiLevelWildcards,
+	#[error("multi-level wildcard can only appear in final filter level")]
+	NonTerminalMultiLevelWildcard,
 }
-
-#[derive(Debug)]
-pub enum ErrorKind {
-	/// The filter is either more than 65,535 UTF-8 encoded bytes long, or
-	/// empty.
-	Length,
-	InvalidWildcard,
-	WildcardPosition,
-}
-
-impl FilterError {
-	fn new(kind: ErrorKind, message: &'static str) -> Self {
-		Self { kind, message }
-	}
-}
-
-impl fmt::Display for FilterError {
-	#[inline]
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "invalid mqtt filter: {:?}, {}", self.kind, self.message)
-	}
-}
-
-impl error::Error for FilterError {}
 
 impl Filter {
-	pub fn new<S: AsRef<str> + ?Sized>(filter: &S) -> Result<&Filter, FilterError> {
+	pub fn new<S: AsRef<str> + ?Sized>(filter: &S) -> Result<&Filter, InvalidFilter> {
 		let filter = filter.as_ref();
 
 		if filter.is_empty() {
-			return Err(FilterError::new(
-				ErrorKind::Length,
-				"filter must not be empty",
-			));
+			return Err(InvalidFilter::Empty);
 		}
 
 		if filter.len() > u16::MAX as usize {
-			return Err(FilterError::new(ErrorKind::Length, "filter is too long"));
+			return Err(InvalidFilter::TooLong);
 		}
 
 		let mut multi_wildcard_position = None;
@@ -73,28 +54,19 @@ impl Filter {
 			total_levels = position;
 
 			if level.chars().any(|c| WILDCARDS.contains(&c)) && level.len() > 1 {
-				return Err(FilterError::new(
-					ErrorKind::InvalidWildcard,
-					"wildcards '+' and '#' must occupy the whole filter level",
-				));
+				return Err(InvalidFilter::InvalidLevel);
 			}
 
 			if level.contains(MULTI_LEVEL_WILDCARD)
 				&& multi_wildcard_position.replace(position).is_some()
 			{
-				return Err(FilterError::new(
-					ErrorKind::WildcardPosition,
-					"multi-level wildcard '#' can only appear once",
-				));
+				return Err(InvalidFilter::MultipleMultiLevelWildcards);
 			}
 		}
 
 		if let Some(position) = multi_wildcard_position {
 			if position != total_levels {
-				return Err(FilterError::new(
-					ErrorKind::WildcardPosition,
-					"multi-level wildcard '#' can only occupy the last level of the filter",
-				));
+				return Err(InvalidFilter::NonTerminalMultiLevelWildcard);
 			}
 		}
 
@@ -213,7 +185,7 @@ impl ToOwned for Filter {
 
 impl FilterBuf {
 	#[inline]
-	pub fn new(filter: impl Into<String>) -> Result<Self, FilterError> {
+	pub fn new(filter: impl Into<String>) -> Result<Self, InvalidFilter> {
 		let filter = filter.into();
 
 		// Check the filter is valid

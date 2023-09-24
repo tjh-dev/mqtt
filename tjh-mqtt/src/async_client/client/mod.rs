@@ -1,9 +1,10 @@
 mod subscription;
 
 use super::command::{Command, CommandTx, PublishCommand, SubscribeCommand, UnsubscribeCommand};
-use crate::{FilterBuf, FilterError, InvalidTopic, QoS, TopicBuf};
+use crate::{FilterBuf, InvalidFilter, InvalidTopic, QoS, TopicBuf};
 use bytes::Bytes;
 use core::fmt;
+use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
 pub use subscription::{Message, Subscription};
@@ -13,14 +14,14 @@ pub struct Client {
 	tx: CommandTx,
 }
 
-#[derive(Debug)]
-pub struct ClientTaskClosed;
-
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum ClientError {
+	#[error("client task closed")]
 	ClientTaskClosed,
-	InvalidFilter(FilterError),
-	InvalidTopic(InvalidTopic),
+	#[error("invalid filter(s): {0}")]
+	InvalidFilter(#[from] InvalidFilter),
+	#[error("invalid topic: {0}")]
+	InvalidTopic(#[from] InvalidTopic),
 }
 
 pub struct Filters(Vec<FilterBuf>);
@@ -204,38 +205,9 @@ impl Client {
 	///
 	/// [`Disconnect`]: crate::packets::Disconnect
 	#[inline]
-	pub async fn disconnect(self) -> Result<(), ClientTaskClosed> {
+	pub async fn disconnect(self) -> Result<(), ClientError> {
 		self.tx.send(Command::Shutdown)?;
 		Ok(())
-	}
-}
-
-impl fmt::Display for ClientTaskClosed {
-	#[inline]
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "{self:?}")
-	}
-}
-
-impl<T> From<mpsc::error::SendError<T>> for ClientTaskClosed {
-	#[inline]
-	fn from(_: mpsc::error::SendError<T>) -> Self {
-		Self
-	}
-}
-
-impl From<oneshot::error::RecvError> for ClientTaskClosed {
-	#[inline]
-	fn from(_: oneshot::error::RecvError) -> Self {
-		Self
-	}
-}
-
-impl std::error::Error for ClientTaskClosed {}
-
-impl fmt::Display for ClientError {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "{self:?}")
 	}
 }
 
@@ -251,22 +223,8 @@ impl From<oneshot::error::RecvError> for ClientError {
 	}
 }
 
-impl From<FilterError> for ClientError {
-	fn from(value: FilterError) -> Self {
-		Self::InvalidFilter(value)
-	}
-}
-
-impl From<InvalidTopic> for ClientError {
-	fn from(value: InvalidTopic) -> Self {
-		Self::InvalidTopic(value)
-	}
-}
-
-impl std::error::Error for ClientError {}
-
 impl TryFrom<&[&str]> for Filters {
-	type Error = FilterError;
+	type Error = InvalidFilter;
 	fn try_from(value: &[&str]) -> Result<Self, Self::Error> {
 		let mut filters = Vec::with_capacity(value.len());
 		for s in value.iter() {
@@ -277,7 +235,7 @@ impl TryFrom<&[&str]> for Filters {
 }
 
 impl TryFrom<&[String]> for Filters {
-	type Error = FilterError;
+	type Error = InvalidFilter;
 	fn try_from(value: &[String]) -> Result<Self, Self::Error> {
 		let mut filters = Vec::with_capacity(value.len());
 		for s in value.iter() {
@@ -288,7 +246,7 @@ impl TryFrom<&[String]> for Filters {
 }
 
 impl TryFrom<Vec<&str>> for Filters {
-	type Error = FilterError;
+	type Error = InvalidFilter;
 	fn try_from(value: Vec<&str>) -> Result<Self, Self::Error> {
 		let mut filters = Vec::with_capacity(value.len());
 		for s in value.into_iter() {
@@ -299,7 +257,7 @@ impl TryFrom<Vec<&str>> for Filters {
 }
 
 impl TryFrom<Vec<String>> for Filters {
-	type Error = FilterError;
+	type Error = InvalidFilter;
 	fn try_from(value: Vec<String>) -> Result<Self, Self::Error> {
 		let mut filters = Vec::with_capacity(value.len());
 		for s in value.into_iter() {
@@ -310,7 +268,7 @@ impl TryFrom<Vec<String>> for Filters {
 }
 
 impl TryFrom<&str> for FiltersWithQoS {
-	type Error = FilterError;
+	type Error = InvalidFilter;
 	fn try_from(value: &str) -> Result<Self, Self::Error> {
 		let filter = FilterBuf::new(value)?;
 		Ok(Self(vec![(filter, QoS::default())]))
@@ -318,7 +276,7 @@ impl TryFrom<&str> for FiltersWithQoS {
 }
 
 impl TryFrom<String> for FiltersWithQoS {
-	type Error = FilterError;
+	type Error = InvalidFilter;
 	fn try_from(value: String) -> Result<Self, Self::Error> {
 		let filter = FilterBuf::new(value)?;
 		Ok(Self(vec![(filter, QoS::default())]))
@@ -326,7 +284,7 @@ impl TryFrom<String> for FiltersWithQoS {
 }
 
 impl TryFrom<(&str, QoS)> for FiltersWithQoS {
-	type Error = FilterError;
+	type Error = InvalidFilter;
 	fn try_from(value: (&str, QoS)) -> Result<Self, Self::Error> {
 		let (raw_filter, qos) = value;
 		let filter = FilterBuf::new(raw_filter)?;
@@ -335,7 +293,7 @@ impl TryFrom<(&str, QoS)> for FiltersWithQoS {
 }
 
 impl TryFrom<(String, QoS)> for FiltersWithQoS {
-	type Error = FilterError;
+	type Error = InvalidFilter;
 	fn try_from(value: (String, QoS)) -> Result<Self, Self::Error> {
 		let (raw_filter, qos) = value;
 		let filter = FilterBuf::new(raw_filter)?;
@@ -344,7 +302,7 @@ impl TryFrom<(String, QoS)> for FiltersWithQoS {
 }
 
 impl TryFrom<Vec<(&str, QoS)>> for FiltersWithQoS {
-	type Error = FilterError;
+	type Error = InvalidFilter;
 	fn try_from(value: Vec<(&str, QoS)>) -> Result<Self, Self::Error> {
 		let mut filters = Vec::with_capacity(value.len());
 		for (raw_filter, qos) in value.into_iter() {
@@ -356,7 +314,7 @@ impl TryFrom<Vec<(&str, QoS)>> for FiltersWithQoS {
 }
 
 impl TryFrom<Vec<(String, QoS)>> for FiltersWithQoS {
-	type Error = FilterError;
+	type Error = InvalidFilter;
 	fn try_from(value: Vec<(String, QoS)>) -> Result<Self, Self::Error> {
 		let mut filters = Vec::with_capacity(value.len());
 		for (raw_filter, qos) in value.into_iter() {
@@ -368,7 +326,7 @@ impl TryFrom<Vec<(String, QoS)>> for FiltersWithQoS {
 }
 
 impl TryFrom<(Vec<&str>, QoS)> for FiltersWithQoS {
-	type Error = FilterError;
+	type Error = InvalidFilter;
 	fn try_from(value: (Vec<&str>, QoS)) -> Result<Self, Self::Error> {
 		let (raw_filters, qos) = value;
 		let mut filters = Vec::with_capacity(raw_filters.len());
@@ -381,7 +339,7 @@ impl TryFrom<(Vec<&str>, QoS)> for FiltersWithQoS {
 }
 
 impl TryFrom<(Vec<String>, QoS)> for FiltersWithQoS {
-	type Error = FilterError;
+	type Error = InvalidFilter;
 	fn try_from(value: (Vec<String>, QoS)) -> Result<Self, Self::Error> {
 		let (raw_filters, qos) = value;
 		let mut filters = Vec::with_capacity(raw_filters.len());

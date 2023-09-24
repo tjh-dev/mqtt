@@ -16,7 +16,7 @@ pub mod misc;
 pub mod packets;
 
 pub use self::{
-	filter::{Filter, FilterBuf, FilterError},
+	filter::{Filter, FilterBuf, InvalidFilter},
 	packet::{Packet, PacketType},
 	qos::{InvalidQoS, QoS},
 	topic::{InvalidTopic, Topic, TopicBuf},
