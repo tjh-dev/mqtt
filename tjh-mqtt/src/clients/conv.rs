@@ -66,6 +66,30 @@ impl TryFrom<String> for FiltersWithQoS {
 	}
 }
 
+impl TryFrom<&[&str]> for FiltersWithQoS {
+	type Error = InvalidFilter;
+	fn try_from(value: &[&str]) -> Result<Self, Self::Error> {
+		let mut filters = Vec::with_capacity(value.len());
+		for raw_filter in value.into_iter() {
+			let filter = FilterBuf::new(*raw_filter)?;
+			filters.push((filter, QoS::default()));
+		}
+		Ok(Self(filters))
+	}
+}
+
+impl<const N: usize> TryFrom<[&str; N]> for FiltersWithQoS {
+	type Error = InvalidFilter;
+	fn try_from(value: [&str; N]) -> Result<Self, Self::Error> {
+		let mut filters = Vec::with_capacity(N);
+		for raw_filter in value.into_iter() {
+			let filter = FilterBuf::new(raw_filter)?;
+			filters.push((filter, QoS::default()));
+		}
+		Ok(Self(filters))
+	}
+}
+
 impl TryFrom<(&str, QoS)> for FiltersWithQoS {
 	type Error = InvalidFilter;
 	fn try_from(value: (&str, QoS)) -> Result<Self, Self::Error> {
