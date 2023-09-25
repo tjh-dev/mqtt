@@ -70,7 +70,7 @@ impl TryFrom<&[&str]> for FiltersWithQoS {
 	type Error = InvalidFilter;
 	fn try_from(value: &[&str]) -> Result<Self, Self::Error> {
 		let mut filters = Vec::with_capacity(value.len());
-		for raw_filter in value.into_iter() {
+		for raw_filter in value.iter() {
 			let filter = FilterBuf::new(*raw_filter)?;
 			filters.push((filter, QoS::default()));
 		}

@@ -80,19 +80,17 @@ impl Client {
 
 	async fn subscribe_impl(
 		&self,
-		filters: FiltersWithQoS,
+		FiltersWithQoS(filters): FiltersWithQoS,
 		buffer: usize,
 	) -> Result<Subscription, ClientError> {
-		let FiltersWithQoS(filters) = filters;
-
-		let (response_tx, response_rx) = oneshot::channel();
-		let (publish_tx, publish_rx) = mpsc::channel(buffer);
+		let (response, response_rx) = oneshot::channel();
+		let (channel, publish_rx) = mpsc::channel(buffer);
 
 		self.tx.send(
 			Command::Subscribe(SubscribeCommand {
 				filters,
-				channel: publish_tx,
-				response: response_tx,
+				channel,
+				response,
 			})
 			.into(),
 		)?;
@@ -159,7 +157,7 @@ impl Client {
 		qos: QoS,
 		retain: bool,
 	) -> Result<(), ClientError> {
-		let (response_tx, response_rx) = oneshot::channel();
+		let (response, response_rx) = oneshot::channel();
 
 		self.tx.send(
 			Command::Publish(PublishCommand {
@@ -167,7 +165,7 @@ impl Client {
 				payload,
 				qos,
 				retain,
-				response: response_tx,
+				response,
 			})
 			.into(),
 		)?;
@@ -194,17 +192,10 @@ impl Client {
 		self.unsubscribe_impl(filters.try_into()?).await
 	}
 
-	async fn unsubscribe_impl(&self, filters: Filters) -> Result<(), ClientError> {
-		let Filters(filters) = filters;
-
-		let (response_tx, response_rx) = oneshot::channel();
-		self.tx.send(
-			Command::Unsubscribe(UnsubscribeCommand {
-				filters,
-				response: response_tx,
-			})
-			.into(),
-		)?;
+	async fn unsubscribe_impl(&self, Filters(filters): Filters) -> Result<(), ClientError> {
+		let (response, response_rx) = oneshot::channel();
+		self.tx
+			.send(Command::Unsubscribe(UnsubscribeCommand { filters, response }).into())?;
 
 		response_rx.await?;
 		Ok(())
