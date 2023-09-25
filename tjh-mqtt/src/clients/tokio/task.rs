@@ -3,10 +3,13 @@ use crate::{
 	clients::command::{PublishCommand, SubscribeCommand, UnsubscribeCommand},
 	packets, FilterBuf, Packet, PacketType, QoS,
 };
-use std::ops::{ControlFlow, ControlFlow::Continue};
+use std::{
+	ops::{ControlFlow, ControlFlow::Continue},
+	time::Instant,
+};
 use tokio::{
 	sync::{mpsc, oneshot},
-	time::{self, Instant},
+	time,
 };
 
 type ClientState = super::ClientState<
@@ -74,7 +77,8 @@ async fn connected_task(
 	}
 
 	let mut should_shutdown = false;
-	let mut keep_alive = time::interval_at(Instant::now() + state.keep_alive, state.keep_alive);
+	let mut keep_alive =
+		time::interval_at((Instant::now() + state.keep_alive).into(), state.keep_alive);
 
 	while !should_shutdown {
 		#[rustfmt::skip]
@@ -123,7 +127,7 @@ async fn connected_task(
 
 		if update_keep_alive {
 			// We've just sent a packet, update the keep alive.
-			keep_alive.reset_at(Instant::now() + state.keep_alive);
+			keep_alive.reset_at((Instant::now() + state.keep_alive).into());
 		}
 	}
 

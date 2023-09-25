@@ -8,9 +8,8 @@ use core::fmt;
 use std::{
 	collections::{HashMap, VecDeque},
 	num::NonZeroU16,
-	time::Duration,
+	time::{Duration, Instant},
 };
-use tokio::time::Instant;
 
 #[derive(Debug)]
 pub enum StateError {
@@ -344,11 +343,13 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 			)
 			.max_by_key(|(_, score, _)| *score)
 		else {
+			#[cfg(feature = "tokio-client")]
 			tracing::error!(topic = ?topic, "failed to find channel for");
 			return None;
 		};
 
 		let time = start.elapsed();
+		#[cfg(feature = "tokio-client")]
 		tracing::debug!(topic = ?topic, filter = ?filter, score = ?score, time = ?time, "found channel for");
 
 		Some(channel)
