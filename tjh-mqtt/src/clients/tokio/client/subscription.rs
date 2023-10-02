@@ -1,17 +1,25 @@
-use crate::clients::command::{Command, UnsubscribeCommand};
-use crate::{clients::tokio::PublishRx, TopicBuf};
-use crate::{FilterBuf, QoS};
+use super::{ClientError, CommandTx};
+use crate::{
+	clients::{
+		command::{Command, UnsubscribeCommand},
+		tokio::PublishRx,
+	},
+	FilterBuf, QoS, TopicBuf,
+};
 use bytes::Bytes;
 use tokio::sync::oneshot;
 
-use super::{ClientError, CommandTx};
-
+/// A published message received from the Server.
 #[derive(Debug)]
 pub struct Message {
+	/// The topic the published message.
 	pub topic: TopicBuf,
+
+	/// The payload of the published message.
 	pub payload: Bytes,
 }
 
+/// A subscription to one or more topics.
 #[derive(Debug)]
 pub struct Subscription {
 	tx: CommandTx,
@@ -30,8 +38,8 @@ impl Subscription {
 	/// ```no_run
 	/// # tokio_test::block_on(async {
 	/// # use core::str::from_utf8;
-	/// # use tjh_mqtt::async_client;
-	/// # let (client, handle) = async_client::tcp_client(("localhost", 1883));
+	/// # use tjh_mqtt::clients::tokio;
+	/// # let (client, handle) = tokio::tcp_client(("localhost", 1883));
 	/// let mut subscription = client.subscribe("a/b", 2).await.unwrap();
 	/// while let Some(message) = subscription.recv().await {
 	/// 	println!("{}: {:?}", &message.topic, &message.payload[..]);
@@ -63,7 +71,7 @@ impl Subscription {
 
 	/// Unsubscribe all the filters associated with the Subscription.
 	///
-	/// This will send an 'Unsubscribe' packet to the broker, and won't return
+	/// This will send an 'Unsubscribe' packet to the Server, and won't return
 	/// until a corresponding 'UnsubAck' packet has been recevied.
 	#[tracing::instrument(ret, err)]
 	pub async fn unsubscribe(mut self) -> Result<(), ClientError> {

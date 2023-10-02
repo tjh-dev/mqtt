@@ -14,6 +14,7 @@ pub use subscription::{Message, Subscription};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
+/// An asychronous MQTT client, based on the tokio runtime.
 #[derive(Clone, Debug)]
 pub struct Client {
 	tx: CommandTx,
@@ -46,8 +47,8 @@ impl Client {
 	/// ```no_run
 	/// # tokio_test::block_on(async {
 	/// # use core::str::from_utf8;
-	/// use tjh_mqtt::async_client;
-	/// let (client, handle) = async_client::tcp_client(("localhost", 1883));
+	/// use tjh_mqtt::clients::tokio;
+	/// let (client, handle) = tokio::tcp_client(("localhost", 1883));
 	///
 	/// // Subscribe to topic "a/b" with the default quality of service (AtMostOnce).
 	/// let mut subscription = client.subscribe("a/b", 8).await.unwrap();
@@ -66,13 +67,9 @@ impl Client {
 	/// [`Subscribe`]: crate::packets::Subscribe
 	/// [`SubAck`]: crate::packets::SubAck
 	#[inline]
-	pub async fn subscribe<TryIntoFiltersWithQoS, E>(
-		&self,
-		filters: TryIntoFiltersWithQoS,
-		len: usize,
-	) -> Result<Subscription, ClientError>
+	pub async fn subscribe<T, E>(&self, filters: T, len: usize) -> Result<Subscription, ClientError>
 	where
-		TryIntoFiltersWithQoS: TryInto<FiltersWithQoS, Error = E>,
+		T: TryInto<FiltersWithQoS, Error = E>,
 		ClientError: From<E>,
 	{
 		self.subscribe_impl(filters.try_into()?, len).await
@@ -114,8 +111,8 @@ impl Client {
 	///
 	/// ```no_run
 	/// # tokio_test::block_on(async {
-	/// use tjh_mqtt::{async_client, QoS::AtMostOnce};
-	/// let (client, handle) = async_client::tcp_client(("localhost", 1883));
+	/// use tjh_mqtt::{clients::tokio, QoS::AtMostOnce};
+	/// let (client, handle) = tokio::tcp_client(("localhost", 1883));
 	///
 	/// // Publish a message.
 	/// if client
@@ -181,12 +178,9 @@ impl Client {
 	/// [`Unsubscribe`]: crate::packets::Unsubscribe
 	/// [`UnsubAck`]: crate::packets::UnsubAck
 	#[inline]
-	pub async fn unsubscribe<TryIntoFilters, E>(
-		&self,
-		filters: TryIntoFilters,
-	) -> Result<(), ClientError>
+	pub async fn unsubscribe<T, E>(&self, filters: T) -> Result<(), ClientError>
 	where
-		TryIntoFilters: TryInto<Filters, Error = E>,
+		T: TryInto<Filters, Error = E>,
 		ClientError: From<E>,
 	{
 		self.unsubscribe_impl(filters.try_into()?).await
