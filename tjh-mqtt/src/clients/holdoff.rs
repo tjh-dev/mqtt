@@ -34,15 +34,33 @@ impl HoldOff {
 
 	/// Sleep for the hold-off period. Any call to `wait()` before
 	/// `increase_with()` is always a no-op.
-	pub async fn wait(&self) {
+	#[allow(unused)]
+	pub fn wait(&self) {
+		if let Some(duration) = self.cur {
+			std::thread::sleep(duration);
+		}
+	}
+
+	#[allow(unused)]
+	pub fn wait_and_increase_with(&mut self, f: impl FnOnce(Duration) -> Duration) {
+		self.wait();
+		self.increase_with(f);
+	}
+
+	/// Sleep for the hold-off period. Any call to `wait()` before
+	/// `increase_with()` is always a no-op.
+	#[inline]
+	#[cfg(feature = "tokio-client")]
+	pub async fn wait_async(&self) {
 		if let Some(duration) = self.cur {
 			tokio::time::sleep(duration).await
 		}
 	}
 
 	#[inline]
-	pub async fn wait_and_increase_with(&mut self, f: impl FnOnce(Duration) -> Duration) {
-		self.wait().await;
+	#[cfg(feature = "tokio-client")]
+	pub async fn wait_and_increase_with_async(&mut self, f: impl FnOnce(Duration) -> Duration) {
+		self.wait_async().await;
 		self.increase_with(f);
 	}
 }

@@ -1,11 +1,9 @@
 mod client;
-mod holdoff;
 mod mqtt_stream;
 mod packet_stream;
 mod task;
 
-use self::holdoff::HoldOff;
-use super::{ClientState, StateError};
+use super::{holdoff::HoldOff, ClientState, StateError};
 use crate::{
 	clients::tokio::mqtt_stream::MqttStream,
 	misc::{Credentials, Will},
@@ -92,7 +90,7 @@ pub fn tcp_client(options: impl Into<Options>) -> (client::Client, JoinHandle<cr
 		let mut reconnect_delay = HoldOff::new(Duration::from_millis(75)..keep_alive);
 		loop {
 			reconnect_delay
-				.wait_and_increase_with(|delay| delay * 2)
+				.wait_and_increase_with_async(|delay| delay * 2)
 				.await;
 
 			// Open the the connection to the broker.
