@@ -4,7 +4,7 @@ use crate::{
 		command::{Command, UnsubscribeCommand},
 		tokio::PublishRx,
 	},
-	FilterBuf, QoS, TopicBuf,
+	packets, FilterBuf, QoS, TopicBuf,
 };
 use bytes::Bytes;
 use tokio::sync::oneshot;
@@ -17,6 +17,19 @@ pub struct Message {
 
 	/// The payload of the published message.
 	pub payload: Bytes,
+}
+
+impl From<packets::Publish> for Message {
+	#[inline]
+	fn from(value: packets::Publish) -> Self {
+		use packets::Publish;
+
+		match value {
+			Publish::AtMostOnce { topic, payload, .. } => Message { topic, payload },
+			Publish::AtLeastOnce { topic, payload, .. } => Message { topic, payload },
+			Publish::ExactlyOnce { topic, payload, .. } => Message { topic, payload },
+		}
+	}
 }
 
 /// A subscription to one or more topics.
@@ -56,17 +69,7 @@ impl Subscription {
 			return None;
 		};
 
-		match next_message {
-			crate::packets::Publish::AtMostOnce { topic, payload, .. } => {
-				Some(Message { topic, payload })
-			}
-			crate::packets::Publish::AtLeastOnce { topic, payload, .. } => {
-				Some(Message { topic, payload })
-			}
-			crate::packets::Publish::ExactlyOnce { topic, payload, .. } => {
-				Some(Message { topic, payload })
-			}
-		}
+		Some(next_message.into())
 	}
 
 	/// Unsubscribe all the filters associated with the Subscription.
