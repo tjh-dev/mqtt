@@ -157,6 +157,7 @@ async fn process_packet<'a>(
 				channel
 					.send(Message {
 						topic: topic.to_topic_buf(),
+						retain,
 						payload,
 					})
 					.await
@@ -172,6 +173,10 @@ async fn process_packet<'a>(
 				topic,
 				payload,
 			} => {
+				if duplicate {
+					unimplemented!("duplicate Publish packets are not yet handled");
+				}
+
 				let Some(channel) = state.find_publish_channel(topic) else {
 					panic!();
 				};
@@ -179,6 +184,7 @@ async fn process_packet<'a>(
 				channel
 					.send(Message {
 						topic: topic.to_topic_buf(),
+						retain,
 						payload,
 					})
 					.await
@@ -196,10 +202,15 @@ async fn process_packet<'a>(
 				topic,
 				payload,
 			} => {
+				if duplicate {
+					unimplemented!("duplicate Publish packets are not yet handled");
+				}
+
 				state.incoming.insert(
 					id,
 					Message {
 						topic: topic.to_topic_buf(),
+						retain,
 						payload,
 					},
 				);
