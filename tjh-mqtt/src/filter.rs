@@ -1,4 +1,4 @@
-use crate::Topic;
+use crate::{Topic, TopicBuf};
 use std::{borrow, cmp, convert, ops};
 use thiserror::Error;
 
@@ -187,6 +187,12 @@ impl ToOwned for Filter {
 	}
 }
 
+impl<'a> From<&'a Topic> for &'a Filter {
+	fn from(value: &'a Topic) -> &'a Filter {
+		Filter::from_str(value.as_str())
+	}
+}
+
 impl FilterBuf {
 	#[inline]
 	pub fn new(filter: impl Into<String>) -> Result<Self, InvalidFilter> {
@@ -257,6 +263,14 @@ impl TryFrom<String> for FilterBuf {
 	#[inline]
 	fn try_from(value: String) -> Result<Self, Self::Error> {
 		Self::new(value)
+	}
+}
+
+impl From<TopicBuf> for FilterBuf {
+	#[inline]
+	fn from(value: TopicBuf) -> Self {
+		// Any valid topic is also a valid filter
+		Self(value.to_inner())
 	}
 }
 

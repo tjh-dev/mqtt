@@ -96,6 +96,10 @@ impl TopicBuf {
 		Topic::new(&topic)?;
 		Ok(Self(topic))
 	}
+
+	pub fn to_inner(self) -> String {
+		self.0
+	}
 }
 
 impl AsRef<str> for Topic {
