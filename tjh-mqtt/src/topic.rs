@@ -3,11 +3,11 @@ use std::{fmt, ops};
 use thiserror::Error;
 
 /// An MQTT topic.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Topic(str);
 
 /// An owned MQTT topic.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TopicBuf(String);
 
 #[derive(Debug, Error)]
