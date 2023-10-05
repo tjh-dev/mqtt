@@ -350,7 +350,7 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 
 		let time = start.elapsed();
 		#[cfg(feature = "tokio-client")]
-		tracing::debug!(topic = ?topic, filter = ?filter, score = ?score, time = ?time, "found channel for");
+		tracing::trace!(topic = ?topic, filter = ?filter, score = ?score, time = ?time, "found channel for");
 
 		Some(channel)
 	}
@@ -425,6 +425,9 @@ impl<PubTx: Clone + fmt::Debug, PubResp, SubResp, UnSubResp>
 			// If the filter matches a already subscribed filter, replace it.
 			for sub in self.active_subscriptions.iter_mut() {
 				if &sub.filter == filter {
+					#[cfg(feature = "tokio-client")]
+					tracing::warn!("replacing existing filter subscription");
+
 					sub.channel = channel.clone();
 					sub.qos = *qos;
 					continue 'outer;
