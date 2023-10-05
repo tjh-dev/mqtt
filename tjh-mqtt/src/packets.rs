@@ -11,20 +11,46 @@ pub struct SubscribeFailed;
 // Packet Types
 //
 
+/// A `Connect` packet is sent by the Client to the Server to initialise a
+/// session.
 #[derive(Clone, Debug)]
 pub struct Connect {
+	/// Protocol name. Should always be `"MQTT"`.
 	pub protocol_name: Cow<'static, str>,
+
+	/// Protocol version.
 	pub protocol_level: u8,
-	pub client_id: String,
+
+	/// Client ID.
+	///
+	/// The Server _may_ accept an empty client ID.
+	pub client_id: Cow<'static, str>,
+
+	/// Keep-alive timeout in seconds.
 	pub keep_alive: u16,
+
+	/// Request a clean session.
 	pub clean_session: bool,
+
+	/// Last will and testament for the Client.
 	pub will: Option<misc::Will>,
+
+	/// Login credentials.
 	pub credentials: Option<misc::Credentials>,
 }
 
+/// A ConnAck packet is sent by the Server to the Client to acknowledge a
+/// new session.
+///
+/// The Client may send packets to the Server before receiving ConnAck, however
+/// the Server shouldn't send any packets to the Client before ConnAck.
 #[derive(Debug)]
 pub struct ConnAck {
+	/// Indicates that the Server has existing state from a previous session for
+	/// the client.
 	pub session_present: bool,
+
+	/// Status code.
 	pub code: u8,
 }
 
@@ -86,7 +112,7 @@ mod connect {
 			Self {
 				protocol_name: Cow::Borrowed(DEFAULT_PROTOCOL_NAME),
 				protocol_level: 4,
-				client_id: String::from(""),
+				client_id: Cow::Borrowed(""),
 				keep_alive: 0,
 				clean_session: true,
 				will: None,
@@ -148,7 +174,7 @@ mod connect {
 			Ok(Self {
 				protocol_name,
 				protocol_level,
-				client_id: String::from(client_id),
+				client_id: Cow::Owned(String::from(client_id)),
 				keep_alive,
 				clean_session,
 				will,

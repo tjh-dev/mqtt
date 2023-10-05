@@ -79,7 +79,7 @@ pub fn tcp_client(options: impl Into<Options>) -> (client::Client, JoinHandle<cr
 		let mut state = ClientState::default();
 		state.keep_alive = keep_alive;
 		state.connect = packets::Connect {
-			client_id: options.client_id.clone(),
+			client_id: options.client_id.into(),
 			keep_alive: options.keep_alive,
 			clean_session: options.clean_session,
 			credentials: options.credentials,
