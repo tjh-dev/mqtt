@@ -1,54 +1,56 @@
-use super::{
-	command::{Command, PublishCommand, UnsubscribeCommand},
-	holdoff::HoldOff,
-	mqtt_stream::MqttStream,
-	state::StateError,
+use super::{mqtt_stream::MqttStream, Command, CommandRx, HoldOff, StateError};
+use crate::{
+	clients::{
+		command::{PublishCommand, SubscribeCommand, UnsubscribeCommand},
+		tokio::Message,
+	},
+	packets::{self, DeserializePacket},
+	FilterBuf, Packet, PacketType, QoS,
 };
-use crate::{async_client::command::SubscribeCommand, packets, FilterBuf, Packet, PacketType, QoS};
-use std::ops::{ControlFlow, ControlFlow::Continue};
+use std::{
+	ops::{ControlFlow, ControlFlow::Continue},
+	time::Instant,
+};
 use tokio::{
 	sync::{mpsc, oneshot},
-	time::{self, Instant},
+	time,
 };
 
-type CommandRx = mpsc::UnboundedReceiver<Command>;
-type ClientState = super::state::ClientState<
-	mpsc::Sender<packets::Publish>,
+type ClientState = super::ClientState<
+	mpsc::Sender<Message>,
 	oneshot::Sender<()>,
 	oneshot::Sender<Vec<(FilterBuf, QoS)>>,
 	oneshot::Sender<()>,
 >;
 
-pub async fn client_task(
+pub async fn preconnect_task(
 	state: &mut ClientState,
 	command_channel: &mut CommandRx,
 	connection: &mut MqttStream,
 	reconnect_delay: &mut HoldOff,
 ) -> crate::Result<ControlFlow<(), ()>> {
-	let connect_packet: Packet = state.connect.clone().into();
-	connection.write_packet(&connect_packet).await?;
+	use packets::ConnAck;
+
+	// Send a Connect packet to the Server. `connect` is a `Bytes`, so this clone
+	// should be cheap.
+	state.reconnect();
+	connection.write(state.buffer().unwrap()).await?;
+
+	let sleep = time::sleep(state.keep_alive);
+	tokio::pin!(sleep);
 
 	// Wait for ConnAck
-	#[rustfmt::skip]
-	let packets::ConnAck { session_present, .. } = tokio::select! {
-		result = connection.read_packet() => {
-			match result {
-				Ok(Some(Packet::ConnAck(connack))) => {
-					tracing::info!(packet = ?connack, "read from stream");
-					if connack.code == 0x80 {
-						return Ok(Continue(()))
-					}
-					reconnect_delay.reset();
-					connack
-				}
-				_ => return Ok(Continue(())),
-			}
-		}
-		_ = time::sleep(state.keep_alive) => {
-			return Ok(Continue(()))
-		}
+	let frame = tokio::select! {
+		Ok(Some(frame)) = connection.read_frame() => frame,
+		_ = &mut sleep => return Ok(Continue(())),
 	};
 
+	let connack = ConnAck::from_frame(&frame)?;
+	let session_present = connack.session_present;
+
+	// TODO: Check return code.
+
+	reconnect_delay.reset();
 	connected_task(state, command_channel, connection, session_present).await
 }
 
@@ -58,30 +60,31 @@ async fn connected_task(
 	connection: &mut MqttStream,
 	session_present: bool,
 ) -> crate::Result<ControlFlow<(), ()>> {
+	//
+	// We've just connected to the Server and received a ConnAck packet.
+	//
+	// Check if we should attempt to re-subscribe to all the active topic filters
+	// in the Client's state.
+	//
 	if !session_present && state.has_active_subscriptions() {
-		// Run-reconnect logic.
 		let (tx, rx) = oneshot::channel();
-		connection
-			.write_packet(&state.generate_resubscribe(tx).unwrap())
-			.await?;
-		let Ok(Some(Packet::SubAck(suback))) = connection.read_packet().await else {
-			tracing::error!("failed to read SubAck");
-			return Err("failed to read suback".into());
-		};
-		if state.suback(suback).is_err() {
-			return Ok(Continue(()));
-		};
-		rx.await?;
+		if state.generate_resubscribe(tx) {
+			let buffer = state.outgoing.split().freeze();
+			connection.write(buffer).await?;
+		}
+
+		tokio::spawn(async move { tracing::debug!(?rx.await) });
 	}
 
 	let mut should_shutdown = false;
-	let mut keep_alive = time::interval_at(Instant::now() + state.keep_alive, state.keep_alive);
+	let mut keep_alive =
+		time::interval_at((Instant::now() + state.keep_alive).into(), state.keep_alive);
 
 	while !should_shutdown {
 		#[rustfmt::skip]
 		tokio::select! {
 			Some(command) = command_channel.recv() => {
-				match process_command(state, command).await {
+				match process_command(state, *command).await {
 					Ok(shutdown) => {
 						should_shutdown = shutdown;
 					}
@@ -91,13 +94,14 @@ async fn connected_task(
 					}
 				}
 			}
-			Ok(packet) = connection.read_packet() => {
-				let Some(packet) = packet else {
+			Ok(frame) = connection.read_frame() => {
+				let Some(frame) = frame else {
 					tracing::warn!("connection reset by peer");
 					return Ok(Continue(()))
 				};
 
-				tracing::info!(packet = ?packet, "read from stream");
+				tracing::debug!(packet = ?frame, "read from stream");
+				let packet: Packet = Packet::parse(&frame)?;
 				if process_packet(state, packet).await.is_err() {
 					return Ok(Continue(()));
 				}
@@ -111,48 +115,54 @@ async fn connected_task(
 				// If we are about to send a packet to the Server, we don't need to send a PingReq.
 				if state.outgoing.is_empty() {
 					state.pingreq_state = Some(Instant::now());
-					state.outgoing.push_back(Packet::PingReq);
+					state.enqueue_packet(&packets::PingReq);
 				}
 			}
 		}
 
-		let update_keep_alive = !state.outgoing.is_empty();
-		for packet in state.outgoing.drain(..) {
-			tracing::info!(packet = ?packet, "writing to stream");
-			connection.write_packet(&packet).await?;
-		}
+		let update_keep_alive = if !state.outgoing.is_empty() {
+			let buffer = state.outgoing.split().freeze();
+			connection.write(buffer).await?;
+			true
+		} else {
+			false
+		};
 
 		if update_keep_alive {
 			// We've just sent a packet, update the keep alive.
-			keep_alive.reset_at(Instant::now() + state.keep_alive);
+			keep_alive.reset_at((Instant::now() + state.keep_alive).into());
 		}
 	}
 
 	Ok(ControlFlow::Break(()))
 }
 
-async fn process_packet(state: &mut ClientState, packet: Packet) -> Result<(), StateError> {
+async fn process_packet<'a>(
+	state: &'a mut ClientState,
+	packet: Packet<'a>,
+) -> Result<(), StateError<'a>> {
 	use packets::Publish;
 
 	match packet {
-		Packet::Publish(publish) => match publish {
+		Packet::Publish(publish) => match *publish {
 			Publish::AtMostOnce {
 				retain,
 				topic,
 				payload,
 			} => {
-				let Some(channel) = state.find_publish_channel(&topic) else {
+				let Some(channel) = state.find_publish_channel(topic) else {
 					panic!();
 				};
 
 				channel
-					.send(Publish::AtMostOnce {
+					.send(Message {
+						topic: topic.to_topic_buf(),
 						retain,
-						topic,
 						payload,
 					})
 					.await
-					.map_err(|p| StateError::DeliveryFailure(p.0))?;
+					.unwrap();
+				// .map_err(|p| StateError::DeliveryFailure())?;
 
 				Ok(())
 			}
@@ -163,21 +173,26 @@ async fn process_packet(state: &mut ClientState, packet: Packet) -> Result<(), S
 				topic,
 				payload,
 			} => {
-				let Some(channel) = state.find_publish_channel(&topic) else {
+				if duplicate {
+					unimplemented!("duplicate Publish packets are not yet handled");
+				}
+
+				let Some(channel) = state.find_publish_channel(topic) else {
 					panic!();
 				};
 
 				channel
-					.send(Publish::AtLeastOnce {
-						id,
+					.send(Message {
+						topic: topic.to_topic_buf(),
 						retain,
-						duplicate,
-						topic,
 						payload,
 					})
 					.await
-					.map_err(|p| StateError::DeliveryFailure(p.0))?;
-				state.outgoing.push_back(packets::PubAck { id }.into());
+					.unwrap();
+				// .map_err(|p| StateError::DeliveryFailure(p.0))?;
+
+				state.enqueue_packet(&packets::PubAck { id });
+
 				Ok(())
 			}
 			Publish::ExactlyOnce {
@@ -187,17 +202,21 @@ async fn process_packet(state: &mut ClientState, packet: Packet) -> Result<(), S
 				topic,
 				payload,
 			} => {
+				if duplicate {
+					unimplemented!("duplicate Publish packets are not yet handled");
+				}
+
 				state.incoming.insert(
 					id,
-					Publish::ExactlyOnce {
-						id,
+					Message {
+						topic: topic.to_topic_buf(),
 						retain,
-						duplicate,
-						topic,
 						payload,
 					},
 				);
-				state.outgoing.push_back(packets::PubRec { id }.into());
+
+				state.enqueue_packet(&packets::PubRec { id });
+
 				Ok(())
 			}
 		},
@@ -217,8 +236,9 @@ async fn process_packet(state: &mut ClientState, packet: Packet) -> Result<(), S
 				));
 			};
 
-			let Some(channel) = state.find_publish_channel(publish.topic()) else {
-				return Err(StateError::DeliveryFailure(publish));
+			let Some(channel) = state.find_publish_channel(&publish.topic) else {
+				panic!();
+				// return Err(StateError::DeliveryFailure(publish));
 			};
 
 			if let Err(publish) = channel.send(publish).await {
@@ -228,7 +248,7 @@ async fn process_packet(state: &mut ClientState, packet: Packet) -> Result<(), S
 
 			// We've successfully passed on the Publish message. Queue up a PubComp
 			// packet
-			state.outgoing.push_back(packets::PubComp { id }.into());
+			state.enqueue_packet(&packets::PubComp { id });
 
 			Ok(())
 		}
@@ -238,7 +258,7 @@ async fn process_packet(state: &mut ClientState, packet: Packet) -> Result<(), S
 			Ok(())
 		}
 		Packet::SubAck(ack) => {
-			let (sender, payload) = state.suback(ack)?;
+			let (sender, payload) = state.suback(*ack)?;
 			let _ = sender.send(payload);
 			Ok(())
 		}
@@ -268,7 +288,7 @@ async fn process_command(state: &mut ClientState, command: Command) -> Result<bo
 	match command {
 		Command::Shutdown => {
 			// TODO: This shutdown process could be better.
-			state.outgoing.push_back(Packet::Disconnect);
+			state.enqueue_packet(&packets::Disconnect);
 			return Ok(true);
 		}
 		Command::Publish(PublishCommand {
@@ -276,22 +296,22 @@ async fn process_command(state: &mut ClientState, command: Command) -> Result<bo
 			payload,
 			qos,
 			retain,
-			response_tx,
+			response: response_tx,
 		}) => {
-			if let Some(response) = state.publish(topic, payload, qos, retain, response_tx) {
+			if let Some(response) = state.publish(&topic, payload, qos, retain, response_tx) {
 				let _ = response.send(());
 			};
 		}
 		Command::Subscribe(SubscribeCommand {
 			filters,
-			publish_tx,
-			response_tx,
+			channel: publish_tx,
+			response: response_tx,
 		}) => {
 			state.subscribe(filters, publish_tx, response_tx);
 		}
 		Command::Unsubscribe(UnsubscribeCommand {
 			filters,
-			response_tx,
+			response: response_tx,
 		}) => {
 			state.unsubscribe(filters, response_tx);
 		}

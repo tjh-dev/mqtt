@@ -1,38 +1,48 @@
 mod client;
-mod command;
-mod holdoff;
 mod mqtt_stream;
 mod packet_stream;
-mod state;
 mod task;
 
-use self::{holdoff::HoldOff, state::ClientState};
+use super::{holdoff::HoldOff, ClientState, StateError};
 use crate::{
-	async_client::mqtt_stream::MqttStream,
+	clients::tokio::mqtt_stream::MqttStream,
 	misc::{Credentials, Will},
-	packets,
+	packets, FilterBuf, QoS,
 };
 use std::{ops::ControlFlow::Break, time::Duration};
-use tokio::{net::TcpStream, sync::mpsc, task::JoinHandle};
+use tokio::{
+	net::TcpStream,
+	sync::{mpsc, oneshot},
+	task::JoinHandle,
+};
 
 pub use client::{Client, Message, Subscription};
 
-pub type PublishTx = mpsc::Sender<packets::Publish>;
-pub type PublishRx = mpsc::Receiver<packets::Publish>;
+pub type PublishTx = mpsc::Sender<Message>;
+pub type PublishRx = mpsc::Receiver<Message>;
+
+type Command = super::command::Command<
+	mpsc::Sender<Message>,
+	oneshot::Sender<()>,
+	oneshot::Sender<Vec<(FilterBuf, QoS)>>,
+	oneshot::Sender<()>,
+>;
+type CommandTx = mpsc::UnboundedSender<Box<Command>>;
+type CommandRx = mpsc::UnboundedReceiver<Box<Command>>;
 
 #[derive(Debug)]
-pub struct Options {
+pub struct Options<'a> {
 	pub host: String,
 	pub port: u16,
 	pub tls: bool,
 	pub keep_alive: u16,
 	pub clean_session: bool,
 	pub client_id: String,
-	pub credentials: Option<Credentials>,
-	pub will: Option<Will>,
+	pub credentials: Option<Credentials<'a>>,
+	pub will: Option<Will<'a>>,
 }
 
-impl Default for Options {
+impl<'a> Default for Options<'a> {
 	fn default() -> Self {
 		Self {
 			host: Default::default(),
@@ -47,7 +57,7 @@ impl Default for Options {
 	}
 }
 
-impl<H: AsRef<str>> From<(H, u16)> for Options {
+impl<'a, H: AsRef<str>> From<(H, u16)> for Options<'a> {
 	#[inline]
 	fn from(value: (H, u16)) -> Self {
 		let (host, port) = value;
@@ -59,27 +69,33 @@ impl<H: AsRef<str>> From<(H, u16)> for Options {
 	}
 }
 
-pub fn tcp_client(options: impl Into<Options>) -> (client::Client, JoinHandle<crate::Result<()>>) {
+pub fn tcp_client<'o>(
+	options: impl Into<Options<'o>>,
+) -> (client::Client, JoinHandle<crate::Result<()>>) {
 	let (tx, mut rx) = mpsc::unbounded_channel();
 	let options = options.into();
 
+	let keep_alive = Duration::from_secs(options.keep_alive.into());
+
+	// Construct a Connect packet.
+	let connect = packets::Connect {
+		client_id: &options.client_id,
+		keep_alive: options.keep_alive,
+		clean_session: options.clean_session,
+		credentials: options.credentials,
+		will: options.will,
+		..Default::default()
+	};
+
+	let mut state = ClientState::new(&connect);
+
 	let handle = tokio::spawn(async move {
-		let keep_alive = Duration::from_secs(options.keep_alive.into());
-		let mut state = ClientState::default();
 		state.keep_alive = keep_alive;
-		state.connect = packets::Connect {
-			client_id: options.client_id.clone(),
-			keep_alive: options.keep_alive,
-			clean_session: options.clean_session,
-			credentials: options.credentials,
-			will: options.will,
-			..Default::default()
-		};
 
 		let mut reconnect_delay = HoldOff::new(Duration::from_millis(75)..keep_alive);
 		loop {
 			reconnect_delay
-				.wait_and_increase_with(|delay| delay * 2)
+				.wait_and_increase_with_async(|delay| delay * 2)
 				.await;
 
 			// Open the the connection to the broker.
@@ -108,7 +124,8 @@ pub fn tcp_client(options: impl Into<Options>) -> (client::Client, JoinHandle<cr
 			};
 
 			if let Ok(Break(_)) =
-				task::client_task(&mut state, &mut rx, &mut connection, &mut reconnect_delay).await
+				task::preconnect_task(&mut state, &mut rx, &mut connection, &mut reconnect_delay)
+					.await
 			{
 				tracing::info!("break from client_task");
 				break Ok(());

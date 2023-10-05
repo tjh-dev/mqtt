@@ -1,23 +1,25 @@
 use crate::{
 	misc::WrappingNonZeroU16,
-	packets::{self, Publish, SubAck, Subscribe, UnsubAck, Unsubscribe},
-	FilterBuf, Packet, PacketId, PacketType, QoS, Topic, TopicBuf,
+	packets::{self, Publish, SerializePacket, SubAck, Subscribe, UnsubAck, Unsubscribe},
+	FilterBuf, PacketId, PacketType, QoS, Topic,
 };
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
+use core::fmt;
 use std::{
-	collections::{HashMap, VecDeque},
+	collections::HashMap,
 	num::NonZeroU16,
-	time::Duration,
+	time::{Duration, Instant},
 };
-use tokio::time::Instant;
+
+use super::tokio::Message;
 
 #[derive(Debug)]
-pub enum StateError {
+pub enum StateError<'a> {
 	Unsolicited(PacketType),
 	/// The Client received a packet that the Server should not send.
 	InvalidPacket,
 	ProtocolError(&'static str),
-	DeliveryFailure(Publish),
+	DeliveryFailure(Publish<'a>),
 	HardDeliveryFailure,
 }
 
@@ -27,21 +29,23 @@ pub struct ClientState<PubTx, PubResp, SubResp, UnSubResp> {
 	/// filters.
 	active_subscriptions: Vec<Subscription<PubTx>>,
 
-	pub outgoing: VecDeque<Packet>,
+	pub outgoing: BytesMut,
 
 	/// Incoming Publish packets.
-	pub incoming: HashMap<PacketId, packets::Publish>,
+	pub incoming: HashMap<PacketId, Message>,
 
 	publish_state: HashMap<PacketId, PublishState<PubResp>>,
 	subscribe_state: HashMap<PacketId, SubscribeState<PubTx, SubResp>>,
 	unsubscribe_state: HashMap<PacketId, UnsubscribeState<UnSubResp>>,
-	resubscribe_state: Option<(PacketId, SubResp)>,
 
 	publish_packet_id: WrappingNonZeroU16,
 	subscribe_packet_id: WrappingNonZeroU16,
 	unsubscribe_packet_id: WrappingNonZeroU16,
 
-	pub connect: packets::Connect,
+	// Serialized Connect packet. We store a copy so we can re-send it on
+	// reconnections.
+	connect: Bytes,
+
 	pub keep_alive: Duration,
 
 	// This is Some if there is a active PingReq request.
@@ -49,7 +53,7 @@ pub struct ClientState<PubTx, PubResp, SubResp, UnSubResp> {
 }
 
 #[derive(Debug)]
-pub struct Subscription<T> {
+struct Subscription<T> {
 	filter: FilterBuf,
 	qos: QoS,
 	channel: T,
@@ -64,8 +68,7 @@ enum PublishState<R> {
 
 #[derive(Debug)]
 struct SubscribeState<T, R> {
-	filters: Vec<(FilterBuf, QoS)>,
-	channel: T,
+	filters: Vec<Subscription<T>>,
 	response: R,
 	expires: Instant,
 }
@@ -83,12 +86,11 @@ impl<PubTx, PubResp, SubResp, UnSubResp> Default
 	fn default() -> Self {
 		Self {
 			active_subscriptions: Vec::new(),
-			outgoing: VecDeque::new(),
+			outgoing: BytesMut::new(),
 			incoming: Default::default(),
 			publish_state: Default::default(),
 			subscribe_state: Default::default(),
 			unsubscribe_state: Default::default(),
-			resubscribe_state: None,
 			publish_packet_id: WrappingNonZeroU16::MAX,
 			subscribe_packet_id: WrappingNonZeroU16::MAX,
 			unsubscribe_packet_id: WrappingNonZeroU16::MAX,
@@ -99,36 +101,49 @@ impl<PubTx, PubResp, SubResp, UnSubResp> Default
 	}
 }
 
-impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, UnSubResp> {
-	pub fn subscribe(&mut self, filters: Vec<(FilterBuf, QoS)>, channel: PubTx, response: SubResp) {
-		// Generate an ID for the subscribe packet.
-		let id = self.generate_subscribe_id();
-		self.subscribe_state.insert(
-			id,
-			SubscribeState {
-				filters: filters.clone(),
-				channel,
-				response,
-				expires: Instant::now(),
-			},
-		);
+impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
+	ClientState<PubTx, PubResp, SubResp, UnSubResp>
+{
+	pub fn new(connect: &packets::Connect) -> Self {
+		let mut buffer = BytesMut::new();
+		connect.serialize_to_bytes(&mut buffer).unwrap();
 
-		// Generate the packet to send.
-		self.outgoing.push_back(Subscribe { id, filters }.into());
+		Self {
+			connect: buffer.freeze(),
+			..Default::default()
+		}
+	}
+
+	pub fn enqueue_packet(&mut self, packet: &impl SerializePacket) {
+		packet
+			.serialize_to_bytes(&mut self.outgoing)
+			.expect("serializing to BytesMut should not failed");
+	}
+
+	pub fn buffer(&mut self) -> Option<Bytes> {
+		(!self.outgoing.is_empty()).then(|| self.outgoing.split().freeze())
+	}
+
+	pub fn reconnect(&mut self) {
+		self.outgoing.extend_from_slice(&self.connect[..]);
 	}
 
 	pub fn unsubscribe(&mut self, filters: Vec<FilterBuf>, response: UnSubResp) {
+		// Generate and serialize an UnSub packet.
 		let id = self.generate_unsubscribe_id();
+		self.enqueue_packet(&Unsubscribe {
+			id,
+			filters: filters.iter().map(|filter| filter.as_ref()).collect(),
+		});
+
 		self.unsubscribe_state.insert(
 			id,
 			UnsubscribeState {
-				filters: filters.clone(),
+				filters,
 				response,
 				expires: Instant::now(),
 			},
 		);
-
-		self.outgoing.push_back(Unsubscribe { id, filters }.into());
 	}
 
 	pub fn unsuback(&mut self, unsuback: UnsubAck) -> Result<UnSubResp, StateError> {
@@ -193,20 +208,33 @@ impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, Un
 		!self.active_subscriptions.is_empty()
 	}
 
-	pub fn generate_resubscribe(&mut self, response_tx: SubResp) -> Option<Packet> {
+	pub fn generate_resubscribe(&mut self, response: SubResp) -> bool {
 		if !self.active_subscriptions.is_empty() {
-			let mut filters = Vec::new();
-			for Subscription { filter, qos, .. } in self.active_subscriptions.iter() {
-				filters.push((filter.clone(), *qos));
-			}
+			let filters: Vec<_> = self.active_subscriptions.drain(..).collect();
 
 			let id = self.generate_subscribe_id();
-			let packet = crate::packets::Subscribe { id, filters };
-			self.resubscribe_state = Some((id, response_tx));
+			let packet = packets::Subscribe {
+				id,
+				filters: filters
+					.iter()
+					.map(|Subscription { filter, qos, .. }| (filter.as_ref(), *qos))
+					.collect(),
+			};
 
-			Some(packet.into())
+			self.enqueue_packet(&packet);
+
+			self.subscribe_state.insert(
+				id,
+				SubscribeState {
+					filters,
+					response,
+					expires: Instant::now(),
+				},
+			);
+
+			true
 		} else {
-			None
+			false
 		}
 	}
 
@@ -231,7 +259,7 @@ impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, Un
 	/// Generates an outgoing Publish packet.
 	pub fn publish(
 		&mut self,
-		topic: TopicBuf,
+		topic: &Topic,
 		payload: Bytes,
 		qos: QoS,
 		retain: bool,
@@ -239,15 +267,11 @@ impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, Un
 	) -> Option<PubResp> {
 		match qos {
 			QoS::AtMostOnce => {
-				// Just queue the Publish packet.
-				self.outgoing.push_back(
-					Publish::AtMostOnce {
-						retain,
-						topic,
-						payload,
-					}
-					.into(),
-				);
+				self.enqueue_packet(&Publish::AtMostOnce {
+					retain,
+					topic,
+					payload,
+				});
 
 				Some(response)
 			}
@@ -257,16 +281,13 @@ impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, Un
 					.insert(id, PublishState::Ack { response });
 
 				// Generate the first attempt.
-				self.outgoing.push_back(
-					Publish::AtLeastOnce {
-						id,
-						retain,
-						duplicate: false,
-						topic,
-						payload,
-					}
-					.into(),
-				);
+				self.enqueue_packet(&Publish::AtLeastOnce {
+					id,
+					retain,
+					duplicate: false,
+					topic,
+					payload,
+				});
 
 				None
 			}
@@ -276,16 +297,13 @@ impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, Un
 					.insert(id, PublishState::Rec { response });
 
 				// Generate the first attempt.
-				self.outgoing.push_back(
-					Publish::ExactlyOnce {
-						id,
-						retain,
-						duplicate: false,
-						topic,
-						payload,
-					}
-					.into(),
-				);
+				self.enqueue_packet(&Publish::ExactlyOnce {
+					id,
+					retain,
+					duplicate: false,
+					topic,
+					payload,
+				});
 
 				None
 			}
@@ -311,7 +329,7 @@ impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, Un
 			.insert(id, PublishState::Comp { response });
 
 		// Queue an incoming PubRel packet.
-		self.outgoing.push_back(packets::PubRel { id }.into());
+		self.enqueue_packet(&packets::PubRel { id });
 		Ok(())
 	}
 
@@ -324,12 +342,12 @@ impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, Un
 		Ok(response)
 	}
 
-	pub fn pubrel(&mut self, id: PacketId) -> Result<Publish, StateError> {
-		let Some(publish) = self.incoming.remove(&id) else {
+	pub fn pubrel(&mut self, id: PacketId) -> Result<Message, StateError> {
+		let Some(message) = self.incoming.remove(&id) else {
 			return Err(StateError::Unsolicited(PacketType::PubRel));
 		};
 
-		Ok(publish)
+		Ok(message)
 	}
 
 	/// Finds a channel to publish messages for `topic` to.
@@ -350,40 +368,62 @@ impl<PubTx, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, Un
 			)
 			.max_by_key(|(_, score, _)| *score)
 		else {
+			#[cfg(feature = "tokio-client")]
 			tracing::error!(topic = ?topic, "failed to find channel for");
 			return None;
 		};
 
 		let time = start.elapsed();
-		tracing::debug!(topic = ?topic, filter = ?filter, score = ?score, time = ?time, "found channel for");
+		#[cfg(feature = "tokio-client")]
+		tracing::trace!(topic = ?topic, filter = ?filter, score = ?score, time = ?time, "found channel for");
 
 		Some(channel)
 	}
 }
 
-impl<PubTx: Clone, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubResp, UnSubResp> {
+impl<PubTx: Clone + fmt::Debug, PubResp, SubResp, UnSubResp>
+	ClientState<PubTx, PubResp, SubResp, UnSubResp>
+{
+	pub fn subscribe(&mut self, filters: Vec<(FilterBuf, QoS)>, channel: PubTx, response: SubResp) {
+		// Generate an ID for the subscribe packet.
+		let id = self.generate_subscribe_id();
+		self.enqueue_packet(&Subscribe {
+			id,
+			filters: filters
+				.iter()
+				.map(|(filter, qos)| (filter.as_ref(), *qos))
+				.collect(),
+		});
+
+		self.subscribe_state.insert(
+			id,
+			SubscribeState {
+				filters: filters
+					.into_iter()
+					.map(|(filter, qos)| Subscription {
+						filter,
+						qos,
+						channel: channel.clone(),
+					})
+					.collect(),
+				response,
+				expires: Instant::now(),
+			},
+		);
+	}
+
 	/// Handles an incoming SubAck packet.
 	pub fn suback(&mut self, ack: SubAck) -> Result<(SubResp, Vec<(FilterBuf, QoS)>), StateError> {
 		let SubAck { id, result } = ack;
 
-		// Check that this isn't a resubscribe.
-		if let Some((resub_id, channel)) = self.resubscribe_state.take() {
-			if resub_id == id {
-				self.resubscribe_state = None;
-				return Ok((channel, Vec::new()));
-			}
-		}
-		// Ascertain that we have an active subscription request for the SubAck
-		// packet ID.
-		let Some(subscribe_state) = self.subscribe_state.remove(&id) else {
-			return Err(StateError::Unsolicited(PacketType::SubAck));
-		};
+		// Confirm we have an active subscription request for the SubAck packet ID.
+		let subscribe_state = self
+			.subscribe_state
+			.remove(&id)
+			.ok_or(StateError::Unsolicited(PacketType::SubAck))?;
 
 		let SubscribeState {
-			filters,
-			channel,
-			response,
-			..
+			filters, response, ..
 		} = subscribe_state;
 
 		if result.len() != filters.len() {
@@ -395,16 +435,28 @@ impl<PubTx: Clone, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubR
 		let successful_filters: Vec<_> = result
 			.into_iter()
 			.zip(filters)
-			.filter_map(|(result_qos, (requested_filter, requested_qos))| {
-				let qos = result_qos.ok()?;
-				Some((requested_filter, requested_qos, qos))
-			})
+			.filter_map(
+				|(
+					result_qos,
+					Subscription {
+						filter,
+						qos,
+						channel,
+					},
+				)| {
+					let result_qos = result_qos.ok()?;
+					Some((filter, qos, result_qos, channel))
+				},
+			)
 			.collect();
 
-		'outer: for (filter, _, qos) in &successful_filters {
+		'outer: for (filter, _, qos, channel) in &successful_filters {
 			// If the filter matches a already subscribed filter, replace it.
 			for sub in self.active_subscriptions.iter_mut() {
 				if &sub.filter == filter {
+					#[cfg(feature = "tokio-client")]
+					tracing::warn!("replacing existing filter subscription");
+
 					sub.channel = channel.clone();
 					sub.qos = *qos;
 					continue 'outer;
@@ -423,7 +475,7 @@ impl<PubTx: Clone, PubResp, SubResp, UnSubResp> ClientState<PubTx, PubResp, SubR
 			response,
 			successful_filters
 				.into_iter()
-				.map(|(f, _, q)| (f, q))
+				.map(|(f, _, q, _)| (f, q))
 				.collect(),
 		))
 	}

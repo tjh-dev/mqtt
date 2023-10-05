@@ -1,4 +1,4 @@
-use crate::{packets::ParseError, Packet};
+use crate::packets::{Frame, ParseError};
 use bytes::{Buf, BytesMut};
 use std::io::Cursor;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -18,20 +18,14 @@ impl<T> PacketStream<T> {
 		}
 	}
 
-	/// Attempt to parse a single [`Packet`] from the buffered data.
-	fn parse_packet(&mut self) -> Result<Option<Packet>, ParseError> {
+	pub fn parse_frame(&mut self) -> Result<Option<Frame>, ParseError> {
 		use ParseError::Incomplete;
 
 		let mut buf = Cursor::new(&self.buffer[..]);
-		match Packet::check(&mut buf) {
+		match Frame::check(&mut buf) {
 			Ok(extent) => {
-				// Rewind the cursor and parse the packet.
-				buf.set_position(0);
-				let packet = Packet::parse(&mut buf)?;
-
-				// Advance the read buffer.
-				self.buffer.advance(extent as usize);
-				Ok(Some(packet))
+				let bytes = self.buffer.split_to(extent).freeze();
+				Ok(Some(Frame::parse(bytes)?))
 			}
 			Err(Incomplete) => Ok(None),
 			Err(error) => Err(error),
@@ -40,11 +34,10 @@ impl<T> PacketStream<T> {
 }
 
 impl<T: AsyncRead + Unpin> PacketStream<T> {
-	/// Read a single [`Packet`] from the underlying stream.
-	pub async fn read_packet(&mut self) -> crate::Result<Option<Packet>> {
+	pub async fn read_frame(&mut self) -> crate::Result<Option<Frame>> {
 		loop {
 			// Attempt to parse a packet from the buffered data.
-			if let Some(packet) = self.parse_packet()? {
+			if let Some(packet) = self.parse_frame()? {
 				return Ok(Some(packet));
 			}
 
@@ -66,15 +59,9 @@ impl<T: AsyncRead + Unpin> PacketStream<T> {
 }
 
 impl<T: AsyncWrite + Unpin> PacketStream<T> {
-	/// Write a single [`Packet`] to the underlying stream.
-	pub async fn write_packet(&mut self, packet: &Packet) -> crate::Result<()> {
-		let mut buf = BytesMut::new();
-		packet.serialize_to_bytes(&mut buf).unwrap();
-
-		self.stream.write_all(&buf).await?;
-		self.stream.flush().await?;
-
-		tracing::debug!("wrote {packet:?} to stream");
+	pub async fn write(&mut self, mut buffer: impl Buf) -> crate::Result<()> {
+		tracing::trace!("writing {} bytes to stream", buffer.remaining());
+		self.stream.write_all_buf(&mut buffer).await?;
 		Ok(())
 	}
 }

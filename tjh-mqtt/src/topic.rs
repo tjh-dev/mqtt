@@ -1,18 +1,22 @@
 use core::borrow;
-use std::{error, fmt, ops};
+use std::{fmt, ops};
+use thiserror::Error;
 
 /// An MQTT topic.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Topic(str);
 
 /// An owned MQTT topic.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TopicBuf(String);
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum InvalidTopic {
+	#[error("topic cannot be empty")]
 	Empty,
+	#[error("topic cannot exceed maximum length for an MQTT string (65,535 bytes)")]
 	TooLong,
+	#[error("topic cannot contain a wildcard character ('{0}' at position {1})")]
 	InvalidCharacter(usize, char),
 }
 
@@ -64,7 +68,7 @@ impl Topic {
 
 	/// Converts a `Topic` to an owned [`TopicBuf`]
 	#[inline]
-	pub fn to_filter_buf(&self) -> TopicBuf {
+	pub fn to_topic_buf(&self) -> TopicBuf {
 		TopicBuf::from(self)
 	}
 
@@ -92,6 +96,10 @@ impl TopicBuf {
 		Topic::new(&topic)?;
 		Ok(Self(topic))
 	}
+
+	pub fn to_inner(self) -> String {
+		self.0
+	}
 }
 
 impl AsRef<str> for Topic {
@@ -112,7 +120,7 @@ impl ToOwned for Topic {
 	type Owned = TopicBuf;
 	#[inline]
 	fn to_owned(&self) -> Self::Owned {
-		self.to_filter_buf()
+		self.to_topic_buf()
 	}
 }
 
@@ -177,22 +185,3 @@ impl fmt::Display for TopicBuf {
 		inner.fmt(f)
 	}
 }
-
-impl fmt::Display for InvalidTopic {
-	#[inline]
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		match self {
-			InvalidTopic::Empty => write!(f, "topic cannot be empty"),
-			InvalidTopic::TooLong => write!(
-				f,
-				"topic cannot exceed maximum MQTT string length (65,535 bytes)"
-			),
-			InvalidTopic::InvalidCharacter(position, character) => write!(
-				f,
-				"wildcard '{character}' (at 1:{position}) cannot appear in topic"
-			),
-		}
-	}
-}
-
-impl error::Error for InvalidTopic {}

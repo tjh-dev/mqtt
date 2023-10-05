@@ -1,21 +1,27 @@
-use super::ClientTaskClosed;
+use super::{ClientError, CommandTx};
 use crate::{
-	async_client::{
-		command::{Command, CommandTx, UnsubscribeCommand},
-		PublishRx,
+	clients::{
+		command::{Command, UnsubscribeCommand},
+		tokio::PublishRx,
 	},
-	TopicBuf,
+	FilterBuf, QoS, TopicBuf,
 };
-use crate::{FilterBuf, QoS};
 use bytes::Bytes;
 use tokio::sync::oneshot;
 
+/// A published message received from the Server.
 #[derive(Debug)]
 pub struct Message {
+	/// The topic the published message.
 	pub topic: TopicBuf,
+
+	pub retain: bool,
+
+	/// The payload of the published message.
 	pub payload: Bytes,
 }
 
+/// A subscription to one or more topics.
 #[derive(Debug)]
 pub struct Subscription {
 	tx: CommandTx,
@@ -34,8 +40,8 @@ impl Subscription {
 	/// ```no_run
 	/// # tokio_test::block_on(async {
 	/// # use core::str::from_utf8;
-	/// # use tjh_mqtt::async_client;
-	/// # let (client, handle) = async_client::tcp_client(("localhost", 1883));
+	/// # use tjh_mqtt::clients::tokio;
+	/// # let (client, handle) = tokio::tcp_client(("localhost", 1883));
 	/// let mut subscription = client.subscribe("a/b", 2).await.unwrap();
 	/// while let Some(message) = subscription.recv().await {
 	/// 	println!("{}: {:?}", &message.topic, &message.payload[..]);
@@ -52,34 +58,22 @@ impl Subscription {
 			return None;
 		};
 
-		match next_message {
-			crate::packets::Publish::AtMostOnce { topic, payload, .. } => {
-				Some(Message { topic, payload })
-			}
-			crate::packets::Publish::AtLeastOnce { topic, payload, .. } => {
-				Some(Message { topic, payload })
-			}
-			crate::packets::Publish::ExactlyOnce { topic, payload, .. } => {
-				Some(Message { topic, payload })
-			}
-		}
+		Some(next_message)
 	}
 
 	/// Unsubscribe all the filters associated with the Subscription.
 	///
-	/// This will send an 'Unsubscribe' packet to the broker, and won't return
+	/// This will send an 'Unsubscribe' packet to the Server, and won't return
 	/// until a corresponding 'UnsubAck' packet has been recevied.
 	#[tracing::instrument(ret, err)]
-	pub async fn unsubscribe(mut self) -> Result<(), ClientTaskClosed> {
-		let (response_tx, response_rx) = oneshot::channel();
+	pub async fn unsubscribe(mut self) -> Result<(), ClientError> {
+		let (response, response_rx) = oneshot::channel();
 
 		// Drain the filters from the Subscription. This will eliminate copying
 		// and prevent the Drop impl from doing anything.
 		let filters = self.filters.drain(..).map(|(f, _)| f).collect();
-		self.tx.send(Command::Unsubscribe(UnsubscribeCommand {
-			filters,
-			response_tx,
-		}))?;
+		self.tx
+			.send(Command::Unsubscribe(UnsubscribeCommand { filters, response }).into())?;
 
 		response_rx.await?;
 		Ok(())
@@ -97,10 +91,13 @@ impl Drop for Subscription {
 	fn drop(&mut self) {
 		if !self.filters.is_empty() {
 			let (tx, _) = oneshot::channel();
-			let _ = self.tx.send(Command::Unsubscribe(UnsubscribeCommand {
-				filters: self.filters.drain(..).map(|(f, _)| f).collect(),
-				response_tx: tx,
-			}));
+			let _ = self.tx.send(
+				Command::Unsubscribe(UnsubscribeCommand {
+					filters: self.filters.drain(..).map(|(f, _)| f).collect(),
+					response: tx,
+				})
+				.into(),
+			);
 		}
 	}
 }

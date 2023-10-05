@@ -1,9 +1,6 @@
-mod matches;
-pub use matches::Matches;
-
-use std::{borrow, error, fmt, ops};
-
-use crate::Topic;
+use crate::{Topic, TopicBuf};
+use std::{borrow, cmp, convert, ops};
+use thiserror::Error;
 
 const LEVEL_SEPARATOR: char = '/';
 const SINGLE_LEVEL_WILDCARD: char = '+';
@@ -22,49 +19,37 @@ pub struct Filter(str);
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FilterBuf(String);
 
-#[derive(Debug)]
-pub struct FilterError {
-	pub kind: ErrorKind,
-	pub message: &'static str,
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Matches {
+	pub exact: usize,
+	pub wildcard: usize,
+	pub multi_wildcard: usize,
 }
 
-#[derive(Debug)]
-pub enum ErrorKind {
-	/// The filter is either more than 65,535 UTF-8 encoded bytes long, or
-	/// empty.
-	Length,
-	InvalidWildcard,
-	WildcardPosition,
+#[derive(Debug, Error)]
+pub enum InvalidFilter {
+	#[error("filter cannot be empty")]
+	Empty,
+	#[error("filter cannont exceed maximum length for an MQTT string (65,535 bytes)")]
+	TooLong,
+	#[error("filter levels cannot contain both wildcard and non-wildcard characters")]
+	InvalidLevel,
+	#[error("filter cannot contain multiple multi-level wildcards")]
+	MultipleMultiLevelWildcards,
+	#[error("multi-level wildcard can only appear in final filter level")]
+	NonTerminalMultiLevelWildcard,
 }
-
-impl FilterError {
-	fn new(kind: ErrorKind, message: &'static str) -> Self {
-		Self { kind, message }
-	}
-}
-
-impl fmt::Display for FilterError {
-	#[inline]
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "invalid mqtt filter: {:?}, {}", self.kind, self.message)
-	}
-}
-
-impl error::Error for FilterError {}
 
 impl Filter {
-	pub fn new<S: AsRef<str> + ?Sized>(filter: &S) -> Result<&Filter, FilterError> {
+	pub fn new<S: AsRef<str> + ?Sized>(filter: &S) -> Result<&Filter, InvalidFilter> {
 		let filter = filter.as_ref();
 
 		if filter.is_empty() {
-			return Err(FilterError::new(
-				ErrorKind::Length,
-				"filter must not be empty",
-			));
+			return Err(InvalidFilter::Empty);
 		}
 
 		if filter.len() > u16::MAX as usize {
-			return Err(FilterError::new(ErrorKind::Length, "filter is too long"));
+			return Err(InvalidFilter::TooLong);
 		}
 
 		let mut multi_wildcard_position = None;
@@ -73,28 +58,19 @@ impl Filter {
 			total_levels = position;
 
 			if level.chars().any(|c| WILDCARDS.contains(&c)) && level.len() > 1 {
-				return Err(FilterError::new(
-					ErrorKind::InvalidWildcard,
-					"wildcards '+' and '#' must occupy the whole filter level",
-				));
+				return Err(InvalidFilter::InvalidLevel);
 			}
 
 			if level.contains(MULTI_LEVEL_WILDCARD)
 				&& multi_wildcard_position.replace(position).is_some()
 			{
-				return Err(FilterError::new(
-					ErrorKind::WildcardPosition,
-					"multi-level wildcard '#' can only appear once",
-				));
+				return Err(InvalidFilter::MultipleMultiLevelWildcards);
 			}
 		}
 
 		if let Some(position) = multi_wildcard_position {
 			if position != total_levels {
-				return Err(FilterError::new(
-					ErrorKind::WildcardPosition,
-					"multi-level wildcard '#' can only occupy the last level of the filter",
-				));
+				return Err(InvalidFilter::NonTerminalMultiLevelWildcard);
 			}
 		}
 
@@ -211,9 +187,15 @@ impl ToOwned for Filter {
 	}
 }
 
+impl<'a> From<&'a Topic> for &'a Filter {
+	fn from(value: &'a Topic) -> &'a Filter {
+		Filter::from_str(value.as_str())
+	}
+}
+
 impl FilterBuf {
 	#[inline]
-	pub fn new(filter: impl Into<String>) -> Result<Self, FilterError> {
+	pub fn new(filter: impl Into<String>) -> Result<Self, InvalidFilter> {
 		let filter = filter.into();
 
 		// Check the filter is valid
@@ -258,6 +240,44 @@ impl AsRef<Filter> for FilterBuf {
 	#[inline]
 	fn as_ref(&self) -> &Filter {
 		Filter::from_str(self.as_str())
+	}
+}
+
+impl AsRef<str> for FilterBuf {
+	#[inline]
+	fn as_ref(&self) -> &str {
+		&self.0
+	}
+}
+
+impl TryFrom<&str> for FilterBuf {
+	type Error = InvalidFilter;
+	#[inline]
+	fn try_from(value: &str) -> Result<Self, Self::Error> {
+		Self::new(value)
+	}
+}
+
+impl TryFrom<String> for FilterBuf {
+	type Error = InvalidFilter;
+	#[inline]
+	fn try_from(value: String) -> Result<Self, Self::Error> {
+		Self::new(value)
+	}
+}
+
+impl From<TopicBuf> for FilterBuf {
+	#[inline]
+	fn from(value: TopicBuf) -> Self {
+		// Any valid topic is also a valid filter
+		Self(value.to_inner())
+	}
+}
+
+// This may be a bad idea?
+impl From<convert::Infallible> for InvalidFilter {
+	fn from(_: convert::Infallible) -> Self {
+		unreachable!()
 	}
 }
 
@@ -316,5 +336,26 @@ mod tests {
 				multi_wildcard: 2
 			})
 		);
+	}
+}
+
+impl Matches {
+	#[inline]
+	pub fn score(&self) -> usize {
+		self.exact * 100 + self.wildcard * 10 + self.multi_wildcard
+	}
+}
+
+impl cmp::PartialOrd for Matches {
+	#[inline]
+	fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+		Some(self.cmp(other))
+	}
+}
+
+impl cmp::Ord for Matches {
+	#[inline]
+	fn cmp(&self, other: &Self) -> cmp::Ordering {
+		self.score().cmp(&other.score())
 	}
 }
