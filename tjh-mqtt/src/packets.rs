@@ -228,7 +228,7 @@ mod connect {
 			serde::put_var(dst, self.payload_len())?;
 
 			// Write the protocol name and level.
-			serde::put_str(dst, &self.protocol_name)?;
+			serde::put_str(dst, self.protocol_name)?;
 			serde::put_u8(dst, self.protocol_level)?;
 
 			// Write the flags and keep alive.
@@ -236,7 +236,7 @@ mod connect {
 			serde::put_u16(dst, self.keep_alive)?;
 
 			// Write the client ID.
-			serde::put_str(dst, &self.client_id)?;
+			serde::put_str(dst, self.client_id)?;
 
 			// Write the will.
 			if let Some(will) = &self.will {
@@ -246,7 +246,7 @@ mod connect {
 
 			// Write the credentials.
 			if let Some(credentials) = &self.credentials {
-				serde::put_str(dst, &credentials.username)?;
+				serde::put_str(dst, credentials.username)?;
 				if let Some(password) = &credentials.password {
 					serde::put_str(dst, password)?;
 				}

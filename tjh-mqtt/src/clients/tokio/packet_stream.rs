@@ -18,7 +18,7 @@ impl<T> PacketStream<T> {
 		}
 	}
 
-	pub fn parse_frame<'a>(&'a mut self) -> Result<Option<Frame>, ParseError> {
+	pub fn parse_frame(&mut self) -> Result<Option<Frame>, ParseError> {
 		use ParseError::Incomplete;
 
 		let mut buf = Cursor::new(&self.buffer[..]);

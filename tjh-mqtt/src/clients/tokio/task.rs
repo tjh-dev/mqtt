@@ -150,7 +150,7 @@ async fn process_packet<'a>(
 				topic,
 				payload,
 			} => {
-				let Some(channel) = state.find_publish_channel(&topic) else {
+				let Some(channel) = state.find_publish_channel(topic) else {
 					panic!();
 				};
 
@@ -172,7 +172,7 @@ async fn process_packet<'a>(
 				topic,
 				payload,
 			} => {
-				let Some(channel) = state.find_publish_channel(&topic) else {
+				let Some(channel) = state.find_publish_channel(topic) else {
 					panic!();
 				};
 
