@@ -100,7 +100,7 @@ async fn connected_task(
 					return Ok(Continue(()))
 				};
 
-				tracing::info!(packet = ?packet, "read from stream");
+				tracing::debug!(packet = ?packet, "read from stream");
 				if process_packet(state, packet).await.is_err() {
 					return Ok(Continue(()));
 				}
