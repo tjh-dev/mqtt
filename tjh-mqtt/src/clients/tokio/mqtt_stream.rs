@@ -1,5 +1,5 @@
 use super::packet_stream::PacketStream;
-use crate::packets::{Frame, SerializePacket};
+use crate::packets::Frame;
 use bytes::Buf;
 use tokio::{
 	io::{AsyncRead, AsyncWrite},
@@ -21,10 +21,6 @@ impl MqttStream {
 		Self {
 			stream: PacketStream::new(stream, len),
 		}
-	}
-
-	pub async fn write_packet(&mut self, packet: &impl SerializePacket) -> crate::Result<()> {
-		self.stream.write_packet(packet).await
 	}
 
 	pub async fn write(&mut self, buffer: impl Buf) -> crate::Result<()> {

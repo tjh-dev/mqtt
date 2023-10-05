@@ -24,7 +24,7 @@ pub enum StateError<'a> {
 }
 
 #[derive(Debug)]
-pub struct ClientState<'a, PubTx, PubResp, SubResp, UnSubResp> {
+pub struct ClientState<PubTx, PubResp, SubResp, UnSubResp> {
 	/// Active subscriptions. All incoming packets are matched against these
 	/// filters.
 	active_subscriptions: Vec<Subscription<PubTx>>,
@@ -42,7 +42,10 @@ pub struct ClientState<'a, PubTx, PubResp, SubResp, UnSubResp> {
 	subscribe_packet_id: WrappingNonZeroU16,
 	unsubscribe_packet_id: WrappingNonZeroU16,
 
-	pub connect: packets::Connect<'a>,
+	// Serialized Connect packet. We store a copy so we can re-send it on
+	// reconnections.
+	connect: Bytes,
+
 	pub keep_alive: Duration,
 
 	// This is Some if there is a active PingReq request.
@@ -77,8 +80,8 @@ struct UnsubscribeState<T> {
 	expires: Instant,
 }
 
-impl<'a, PubTx, PubResp, SubResp, UnSubResp> Default
-	for ClientState<'a, PubTx, PubResp, SubResp, UnSubResp>
+impl<PubTx, PubResp, SubResp, UnSubResp> Default
+	for ClientState<PubTx, PubResp, SubResp, UnSubResp>
 {
 	fn default() -> Self {
 		Self {
@@ -98,27 +101,49 @@ impl<'a, PubTx, PubResp, SubResp, UnSubResp> Default
 	}
 }
 
-impl<'a, PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
-	ClientState<'a, PubTx, PubResp, SubResp, UnSubResp>
+impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
+	ClientState<PubTx, PubResp, SubResp, UnSubResp>
 {
+	pub fn new(connect: &packets::Connect) -> Self {
+		let mut buffer = BytesMut::new();
+		connect.serialize_to_bytes(&mut buffer).unwrap();
+
+		Self {
+			connect: buffer.freeze(),
+			..Default::default()
+		}
+	}
+
 	pub fn enqueue_packet(&mut self, packet: &impl SerializePacket) {
 		packet
 			.serialize_to_bytes(&mut self.outgoing)
 			.expect("serializing to BytesMut should not failed");
 	}
 
+	pub fn buffer(&mut self) -> Option<Bytes> {
+		(!self.outgoing.is_empty()).then(|| self.outgoing.split().freeze())
+	}
+
+	pub fn reconnect(&mut self) {
+		self.outgoing.extend_from_slice(&self.connect[..]);
+	}
+
 	pub fn unsubscribe(&mut self, filters: Vec<FilterBuf>, response: UnSubResp) {
+		// Generate and serialize an UnSub packet.
 		let id = self.generate_unsubscribe_id();
+		self.enqueue_packet(&Unsubscribe {
+			id,
+			filters: filters.iter().map(|filter| filter.as_ref()).collect(),
+		});
+
 		self.unsubscribe_state.insert(
 			id,
 			UnsubscribeState {
-				filters: filters.clone(),
+				filters,
 				response,
 				expires: Instant::now(),
 			},
 		);
-
-		self.enqueue_packet(&Unsubscribe { id, filters });
 	}
 
 	pub fn unsuback(&mut self, unsuback: UnsubAck) -> Result<UnSubResp, StateError> {
@@ -356,30 +381,12 @@ impl<'a, PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 	}
 }
 
-impl<'a, PubTx: Clone + fmt::Debug, PubResp, SubResp, UnSubResp>
-	ClientState<'a, PubTx, PubResp, SubResp, UnSubResp>
+impl<PubTx: Clone + fmt::Debug, PubResp, SubResp, UnSubResp>
+	ClientState<PubTx, PubResp, SubResp, UnSubResp>
 {
 	pub fn subscribe(&mut self, filters: Vec<(FilterBuf, QoS)>, channel: PubTx, response: SubResp) {
 		// Generate an ID for the subscribe packet.
 		let id = self.generate_subscribe_id();
-
-		self.subscribe_state.insert(
-			id,
-			SubscribeState {
-				filters: filters
-					.iter()
-					.map(|(filter, qos)| Subscription {
-						filter: filter.to_filter_buf(),
-						qos: *qos,
-						channel: channel.clone(),
-					})
-					.collect(),
-				response,
-				expires: Instant::now(),
-			},
-		);
-
-		// Generate the packet to send.
 		self.enqueue_packet(&Subscribe {
 			id,
 			filters: filters
@@ -387,6 +394,22 @@ impl<'a, PubTx: Clone + fmt::Debug, PubResp, SubResp, UnSubResp>
 				.map(|(filter, qos)| (filter.as_ref(), *qos))
 				.collect(),
 		});
+
+		self.subscribe_state.insert(
+			id,
+			SubscribeState {
+				filters: filters
+					.into_iter()
+					.map(|(filter, qos)| Subscription {
+						filter,
+						qos,
+						channel: channel.clone(),
+					})
+					.collect(),
+				response,
+				expires: Instant::now(),
+			},
+		);
 	}
 
 	/// Handles an incoming SubAck packet.

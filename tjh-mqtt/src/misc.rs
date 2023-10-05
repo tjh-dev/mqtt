@@ -1,4 +1,4 @@
-use crate::{QoS, TopicBuf};
+use crate::{QoS, Topic};
 use bytes::Bytes;
 use std::{num::NonZeroU16, ops};
 
@@ -6,14 +6,14 @@ use std::{num::NonZeroU16, ops};
 ///
 /// Note that is not possible to set a password without also setting a username.
 #[derive(Clone, Debug)]
-pub struct Credentials {
-	pub username: String,
-	pub password: Option<String>,
+pub struct Credentials<'a> {
+	pub username: &'a str,
+	pub password: Option<&'a str>,
 }
 
-impl From<String> for Credentials {
+impl<'a> From<&'a str> for Credentials<'a> {
 	#[inline]
-	fn from(username: String) -> Self {
+	fn from(username: &'a str) -> Self {
 		Self {
 			username,
 			password: None,
@@ -21,32 +21,12 @@ impl From<String> for Credentials {
 	}
 }
 
-impl From<&str> for Credentials {
+impl<'a> From<(&'a str, &'a str)> for Credentials<'a> {
 	#[inline]
-	fn from(username: &str) -> Self {
-		Self {
-			username: String::from(username),
-			password: None,
-		}
-	}
-}
-
-impl From<(String, String)> for Credentials {
-	#[inline]
-	fn from((username, password): (String, String)) -> Self {
+	fn from((username, password): (&'a str, &'a str)) -> Self {
 		Self {
 			username,
 			password: Some(password),
-		}
-	}
-}
-
-impl From<(&str, &str)> for Credentials {
-	#[inline]
-	fn from((username, password): (&str, &str)) -> Self {
-		Self {
-			username: String::from(username),
-			password: Some(String::from(password)),
 		}
 	}
 }
@@ -58,9 +38,9 @@ impl From<(&str, &str)> for Credentials {
 /// topic on behalf of the Client. The will message MUST be published with the
 /// Will QoS and Retain flags as specified.
 #[derive(Clone, Debug)]
-pub struct Will {
+pub struct Will<'a> {
 	/// The topic to publish the will message to.
-	pub topic: TopicBuf,
+	pub topic: &'a Topic,
 
 	/// The message to publish as the will.
 	pub payload: Bytes,

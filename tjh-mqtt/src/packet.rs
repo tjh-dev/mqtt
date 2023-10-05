@@ -19,7 +19,7 @@ pub enum Packet<'a> {
 	PubComp(PubComp),
 	Subscribe(Box<Subscribe<'a>>),
 	SubAck(Box<SubAck>),
-	Unsubscribe(Box<Unsubscribe>),
+	Unsubscribe(Box<Unsubscribe<'a>>),
 	UnsubAck(UnsubAck),
 	PingReq,
 	PingResp,
@@ -173,9 +173,9 @@ impl<'a> From<SubAck> for Packet<'a> {
 	}
 }
 
-impl<'a> From<Unsubscribe> for Packet<'a> {
+impl<'a> From<Unsubscribe<'a>> for Packet<'a> {
 	#[inline]
-	fn from(value: Unsubscribe) -> Self {
+	fn from(value: Unsubscribe<'a>) -> Self {
 		Self::Unsubscribe(value.into())
 	}
 }

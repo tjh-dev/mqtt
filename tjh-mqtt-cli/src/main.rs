@@ -114,7 +114,7 @@ fn setup_tracing() -> Result<(), SetGlobalDefaultError> {
 	tracing::subscriber::set_global_default(subscriber)
 }
 
-impl From<&Arguments> for Options {
+impl From<&Arguments> for Options<'_> {
 	fn from(value: &Arguments) -> Self {
 		let Arguments {
 			host,

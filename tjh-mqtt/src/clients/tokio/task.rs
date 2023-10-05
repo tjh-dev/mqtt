@@ -17,7 +17,6 @@ use tokio::{
 };
 
 type ClientState = super::ClientState<
-	'static,
 	mpsc::Sender<Message>,
 	oneshot::Sender<()>,
 	oneshot::Sender<Vec<(FilterBuf, QoS)>>,
@@ -32,8 +31,10 @@ pub async fn preconnect_task(
 ) -> crate::Result<ControlFlow<(), ()>> {
 	use packets::ConnAck;
 
-	// Send a Connect packet to the Server.
-	connection.write_packet(&state.connect).await?;
+	// Send a Connect packet to the Server. `connect` is a `Bytes`, so this clone
+	// should be cheap.
+	state.reconnect();
+	connection.write(state.buffer().unwrap()).await?;
 
 	let sleep = time::sleep(state.keep_alive);
 	tokio::pin!(sleep);

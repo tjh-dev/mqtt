@@ -1,8 +1,10 @@
 use crate::{
-	filter, misc, serde, Filter, FilterBuf, InvalidQoS, Packet, PacketId, QoS, Topic, TopicBuf,
+	filter,
+	misc::{self, Credentials, Will},
+	serde, Filter, InvalidQoS, Packet, PacketId, QoS, Topic,
 };
 use bytes::{Buf, BufMut, Bytes};
-use std::{borrow::Cow, error, fmt, io, str::Utf8Error};
+use std::{error, fmt, io, str::Utf8Error};
 
 const DEFAULT_PROTOCOL_NAME: &str = "MQTT";
 
@@ -57,7 +59,7 @@ impl Frame {
 #[derive(Clone, Debug)]
 pub struct Connect<'a> {
 	/// Protocol name. Should always be `"MQTT"`.
-	pub protocol_name: Cow<'a, str>,
+	pub protocol_name: &'a str,
 
 	/// Protocol version.
 	pub protocol_level: u8,
@@ -65,7 +67,7 @@ pub struct Connect<'a> {
 	/// Client ID.
 	///
 	/// The Server _may_ accept an empty client ID.
-	pub client_id: Cow<'a, str>,
+	pub client_id: &'a str,
 
 	/// Keep-alive timeout in seconds.
 	pub keep_alive: u16,
@@ -74,10 +76,10 @@ pub struct Connect<'a> {
 	pub clean_session: bool,
 
 	/// Last will and testament for the Client.
-	pub will: Option<misc::Will>,
+	pub will: Option<Will<'a>>,
 
 	/// Login credentials.
-	pub credentials: Option<misc::Credentials>,
+	pub credentials: Option<Credentials<'a>>,
 }
 
 /// A ConnAck packet is sent by the Server to the Client to acknowledge a
@@ -135,9 +137,9 @@ pub struct SubAck {
 }
 
 #[derive(Debug)]
-pub struct Unsubscribe {
+pub struct Unsubscribe<'a> {
 	pub id: PacketId,
-	pub filters: Vec<FilterBuf>,
+	pub filters: Vec<&'a Filter>,
 }
 
 id_packet!(UnsubAck, Packet::UnsubAck, 0xb0);
@@ -151,9 +153,9 @@ mod connect {
 	impl<'a> Default for Connect<'a> {
 		fn default() -> Self {
 			Self {
-				protocol_name: Cow::Borrowed(DEFAULT_PROTOCOL_NAME),
+				protocol_name: DEFAULT_PROTOCOL_NAME,
 				protocol_level: 4,
-				client_id: Cow::Borrowed(""),
+				client_id: "",
 				keep_alive: 0,
 				clean_session: true,
 				will: None,
@@ -163,10 +165,10 @@ mod connect {
 	}
 
 	impl<'a> Connect<'a> {
-		pub fn parse(payload: &[u8]) -> Result<Self, ParseError> {
+		pub fn parse(payload: &'a [u8]) -> Result<Self, ParseError> {
 			let mut cursor = io::Cursor::new(payload);
 			let protocol_name = match serde::get_str(&mut cursor)? {
-				DEFAULT_PROTOCOL_NAME => Cow::Borrowed(DEFAULT_PROTOCOL_NAME),
+				DEFAULT_PROTOCOL_NAME => DEFAULT_PROTOCOL_NAME,
 				_ => {
 					return Err(ParseError::MalformedPacket("invalid protocol name"));
 				}
@@ -188,7 +190,7 @@ mod connect {
 				let retain = flags & 0x20 == 0x20;
 
 				Some(misc::Will {
-					topic: TopicBuf::new(topic)?,
+					topic: Topic::new(topic)?,
 					payload: Bytes::from(payload),
 					qos,
 					retain,
@@ -200,14 +202,11 @@ mod connect {
 			let credentials = if flags & 0x40 == 0x40 {
 				let username = serde::get_str(&mut cursor)?;
 				let password = if flags & 0x80 == 0x80 {
-					Some(serde::get_str(&mut cursor)?.to_string())
+					Some(serde::get_str(&mut cursor)?)
 				} else {
 					None
 				};
-				Some(misc::Credentials {
-					username: String::from(username),
-					password,
-				})
+				Some(misc::Credentials { username, password })
 			} else {
 				None
 			};
@@ -215,7 +214,7 @@ mod connect {
 			Ok(Self {
 				protocol_name,
 				protocol_level,
-				client_id: Cow::Owned(String::from(client_id)),
+				client_id,
 				keep_alive,
 				clean_session,
 				will,
@@ -621,16 +620,16 @@ impl SubAck {
 	}
 }
 
-impl Unsubscribe {
+impl<'a> Unsubscribe<'a> {
 	/// Parses the payload of a [`Subscribe`] packet.
-	pub fn parse(payload: &[u8]) -> Result<Self, ParseError> {
+	pub fn parse(payload: &'a [u8]) -> Result<Self, ParseError> {
 		let mut cursor = io::Cursor::new(payload);
 		let id = serde::get_id(&mut cursor)?;
 
 		let mut filters = Vec::new();
 		while cursor.has_remaining() {
 			let filter = serde::get_str(&mut cursor)?;
-			filters.push(FilterBuf::new(filter)?);
+			filters.push(Filter::new(filter)?);
 		}
 
 		Ok(Self { id, filters })
@@ -729,7 +728,7 @@ impl_serialize!(PubRel);
 impl_serialize!(PubComp);
 impl_serialize!(Subscribe, a);
 impl_serialize!(SubAck);
-impl_serialize!(Unsubscribe);
+impl_serialize!(Unsubscribe, a);
 impl_serialize!(UnsubAck);
 impl_serialize!(PingReq);
 impl_serialize!(PingResp);
