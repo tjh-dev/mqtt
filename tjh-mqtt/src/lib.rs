@@ -2,6 +2,7 @@
 //! # MQTT
 //!
 //! A library for interacting with the MQTT protocol.
+mod bytes_reader;
 mod filter;
 mod packet;
 mod qos;

@@ -1,10 +1,11 @@
 use crate::{
+	bytes_reader::BytesReader,
 	filter,
 	misc::{self, Credentials, Will},
-	serde, Filter, InvalidQoS, Packet, PacketId, QoS, Topic,
+	serde, Filter, InvalidQoS, Packet, PacketId, QoS, Topic, TopicBuf,
 };
 use bytes::{Buf, BufMut, Bytes};
-use std::{error, fmt, io, str::Utf8Error};
+use std::{error, fmt, io, str::Utf8Error, string::FromUtf8Error};
 
 const DEFAULT_PROTOCOL_NAME: &str = "MQTT";
 
@@ -97,24 +98,25 @@ pub struct ConnAck {
 	pub code: u8,
 }
 
-pub enum Publish<'a> {
+/// A Publish packet can be sent by either the Client or the Server.
+pub enum Publish {
 	AtMostOnce {
 		retain: bool,
-		topic: &'a Topic,
+		topic: TopicBuf,
 		payload: Bytes,
 	},
 	AtLeastOnce {
 		id: PacketId,
 		retain: bool,
 		duplicate: bool,
-		topic: &'a Topic,
+		topic: TopicBuf,
 		payload: Bytes,
 	},
 	ExactlyOnce {
 		id: PacketId,
 		retain: bool,
 		duplicate: bool,
-		topic: &'a Topic,
+		topic: TopicBuf,
 		payload: Bytes,
 	},
 }
@@ -181,20 +183,17 @@ mod connect {
 
 			let clean_session = flags & 0x02 == 0x02;
 			let will = if flags & 0x04 == 0x04 {
-				let topic = serde::get_str(&mut cursor)?;
-				let len = serde::get_u16(&mut cursor)?;
+				// Deserialize the last-will topic.
+				let topic = Topic::new(serde::get_str(&mut cursor)?)?;
 
-				// TODO: Can this be borrowed?
-				let payload = serde::get_slice(&mut cursor, len as usize)?.to_vec();
+				// Read the last-will payload length and slice.
+				let len = serde::get_u16(&mut cursor)?;
+				let payload = serde::get_slice(&mut cursor, len as usize)?;
+
 				let qos = ((flags & 0x18) >> 3).try_into()?;
 				let retain = flags & 0x20 == 0x20;
 
-				Some(misc::Will {
-					topic: Topic::new(topic)?,
-					payload: Bytes::from(payload),
-					qos,
-					retain,
-				})
+				Some(Will::new(topic, payload, qos, retain))
 			} else {
 				None
 			};
@@ -241,7 +240,7 @@ mod connect {
 			// Write the will.
 			if let Some(will) = &self.will {
 				serde::put_str(dst, will.topic.as_str())?;
-				serde::put_slice(dst, &will.payload)?;
+				serde::put_slice(dst, will.payload)?;
 			}
 
 			// Write the credentials.
@@ -347,15 +346,17 @@ const PUBLISH_HEADER_RETAIN_FLAG: u8 = 0x01;
 const PUBLISH_HEADER_DUPLICATE_FLAG: u8 = 0x08;
 const PUBLISH_HEADER_QOS_MASK: u8 = 0x06;
 
-impl<'a> Publish<'a> {
-	pub fn parse(payload: &'a [u8], flags: u8) -> Result<Self, ParseError> {
-		let mut cursor = io::Cursor::new(payload);
+impl Publish {
+	pub fn parse(payload: Bytes, flags: u8) -> Result<Self, ParseError> {
+		// let mut cursor = io::Cursor::new(payload);
+		let mut reader = BytesReader::new(payload);
 		// Extract properties from the header flags.
 		let retain = flags & PUBLISH_HEADER_RETAIN_FLAG == PUBLISH_HEADER_RETAIN_FLAG;
 		let duplicate = flags & PUBLISH_HEADER_DUPLICATE_FLAG == PUBLISH_HEADER_DUPLICATE_FLAG;
 		let qos: QoS = ((flags & PUBLISH_HEADER_QOS_MASK) >> 1).try_into()?;
 
-		let topic = Topic::new(serde::get_str(&mut cursor)?)?;
+		// let topic = Topic::new(serde::get_str(&mut cursor)?)?;
+		let topic = TopicBuf::new(reader.take_str()?)?;
 
 		// The interpretation of the remaining bytes depends on the QoS.
 		match qos {
@@ -365,9 +366,11 @@ impl<'a> Publish<'a> {
 						"duplicate flag must be 0 for Publish packets with QoS of AtMostOnce",
 					));
 				}
-				let remaining = cursor.remaining();
-				let payload = serde::get_slice(&mut cursor, remaining)?.to_vec();
-				let payload = Bytes::from(payload);
+
+				// Extract the payload.
+				let payload = reader.take_inner();
+				// let remaining = cursor.remaining();
+				// let payload = serde::get_slice(&mut cursor, remaining)?;
 
 				Ok(Self::AtMostOnce {
 					retain,
@@ -376,10 +379,11 @@ impl<'a> Publish<'a> {
 				})
 			}
 			QoS::AtLeastOnce => {
-				let id = serde::get_id(&mut cursor)?;
-				let remaining = cursor.remaining();
-				let payload = serde::get_slice(&mut cursor, remaining)?.to_vec();
-				let payload = Bytes::from(payload);
+				// let id = serde::get_id(&mut cursor)?;
+				// let remaining = cursor.remaining();
+				// let payload = serde::get_slice(&mut cursor, remaining)?;
+				let id = reader.take_id()?;
+				let payload = reader.take_inner();
 
 				Ok(Self::AtLeastOnce {
 					id,
@@ -390,10 +394,11 @@ impl<'a> Publish<'a> {
 				})
 			}
 			QoS::ExactlyOnce => {
-				let id = serde::get_id(&mut cursor)?;
-				let remaining = cursor.remaining();
-				let payload = serde::get_slice(&mut cursor, remaining)?.to_vec();
-				let payload = Bytes::from(payload);
+				// let id = serde::get_id(&mut cursor)?;
+				// let remaining = cursor.remaining();
+				// let payload = serde::get_slice(&mut cursor, remaining)?;
+				let id = reader.take_id()?;
+				let payload = reader.take_inner();
 
 				Ok(Self::ExactlyOnce {
 					id,
@@ -471,7 +476,7 @@ impl<'a> Publish<'a> {
 
 	/// Returns the payload of the Publish packet.
 	#[inline]
-	pub fn payload(&self) -> &Bytes {
+	pub fn payload(&self) -> &[u8] {
 		match self {
 			Self::AtMostOnce { payload, .. } => payload,
 			Self::AtLeastOnce { payload, .. } => payload,
@@ -530,7 +535,7 @@ impl<'a> Publish<'a> {
 	}
 }
 
-impl fmt::Debug for Publish<'_> {
+impl fmt::Debug for Publish {
 	#[inline]
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		f.debug_struct("Publish")
@@ -664,6 +669,7 @@ pub enum ParseError {
 	MalformedLength,
 	MalformedPacket(&'static str),
 	Utf8Error(Utf8Error),
+	FromUtf8Error(FromUtf8Error),
 }
 
 impl From<Utf8Error> for ParseError {
@@ -721,7 +727,7 @@ macro_rules! impl_serialize {
 
 impl_serialize!(Connect, a);
 impl_serialize!(ConnAck);
-impl_serialize!(Publish, a);
+impl_serialize!(Publish);
 impl_serialize!(PubAck);
 impl_serialize!(PubRec);
 impl_serialize!(PubRel);

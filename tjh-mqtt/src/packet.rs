@@ -12,7 +12,7 @@ use std::io;
 pub enum Packet<'a> {
 	Connect(Box<Connect<'a>>),
 	ConnAck(ConnAck),
-	Publish(Box<Publish<'a>>),
+	Publish(Box<Publish>),
 	PubAck(PubAck),
 	PubRec(PubRec),
 	PubRel(PubRel),
@@ -82,7 +82,7 @@ impl<'a> Packet<'a> {
 		match (header & 0xf0, header & 0x0f) {
 			(CONNECT, 0x00) => Ok(Connect::parse(payload)?.into()),
 			(CONNACK, 0x00) => Ok(ConnAck::parse(payload)?.into()),
-			(PUBLISH, flags) => Ok(Publish::parse(payload, flags)?.into()),
+			(PUBLISH, flags) => Ok(Publish::parse(frame.payload.clone(), flags)?.into()),
 			(PUBACK, 0x00) => Ok(PubAck::parse(payload)?.into()),
 			(PUBREC, 0x00) => Ok(PubRec::parse(payload)?.into()),
 			(PUBREL, 0x02) => Ok(PubRel::parse(payload)?.into()),
@@ -152,9 +152,9 @@ impl<'a> From<ConnAck> for Packet<'a> {
 	}
 }
 
-impl<'a> From<Publish<'a>> for Packet<'a> {
+impl<'a> From<Publish> for Packet<'a> {
 	#[inline]
-	fn from(value: Publish<'a>) -> Self {
+	fn from(value: Publish) -> Self {
 		Self::Publish(value.into())
 	}
 }

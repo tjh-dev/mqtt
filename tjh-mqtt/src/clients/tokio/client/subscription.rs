@@ -21,6 +21,16 @@ pub struct Message {
 	pub payload: Bytes,
 }
 
+impl From<(TopicBuf, bool, Bytes)> for Message {
+	fn from((topic, retain, payload): (TopicBuf, bool, Bytes)) -> Self {
+		Self {
+			topic,
+			retain,
+			payload,
+		}
+	}
+}
+
 /// A subscription to one or more topics.
 #[derive(Debug)]
 pub struct Subscription {

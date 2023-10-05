@@ -43,13 +43,24 @@ pub struct Will<'a> {
 	pub topic: &'a Topic,
 
 	/// The message to publish as the will.
-	pub payload: Bytes,
+	pub payload: &'a [u8],
 
 	/// The quality of service to publish the will message at.
 	pub qos: QoS,
 
 	/// Whether or not the will message should be retained.
 	pub retain: bool,
+}
+
+impl<'a> Will<'a> {
+	pub fn new(topic: &'a Topic, payload: &'a [u8], qos: QoS, retain: bool) -> Self {
+		Self {
+			topic,
+			payload,
+			qos,
+			retain,
+		}
+	}
 }
 
 #[derive(Debug)]

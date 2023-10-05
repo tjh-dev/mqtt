@@ -1,7 +1,7 @@
 use crate::{
 	misc::WrappingNonZeroU16,
 	packets::{self, Publish, SerializePacket, SubAck, Subscribe, UnsubAck, Unsubscribe},
-	FilterBuf, PacketId, PacketType, QoS, Topic,
+	FilterBuf, PacketId, PacketType, QoS, Topic, TopicBuf,
 };
 use bytes::{Bytes, BytesMut};
 use core::fmt;
@@ -14,12 +14,12 @@ use std::{
 use super::tokio::Message;
 
 #[derive(Debug)]
-pub enum StateError<'a> {
+pub enum StateError {
 	Unsolicited(PacketType),
 	/// The Client received a packet that the Server should not send.
 	InvalidPacket,
 	ProtocolError(&'static str),
-	DeliveryFailure(Publish<'a>),
+	DeliveryFailure(Message),
 	HardDeliveryFailure,
 }
 
@@ -259,7 +259,7 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 	/// Generates an outgoing Publish packet.
 	pub fn publish(
 		&mut self,
-		topic: &Topic,
+		topic: TopicBuf,
 		payload: Bytes,
 		qos: QoS,
 		retain: bool,

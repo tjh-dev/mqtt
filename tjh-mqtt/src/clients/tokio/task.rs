@@ -140,7 +140,7 @@ async fn connected_task(
 async fn process_packet<'a>(
 	state: &'a mut ClientState,
 	packet: Packet<'a>,
-) -> Result<(), StateError<'a>> {
+) -> Result<(), StateError> {
 	use packets::Publish;
 
 	match packet {
@@ -150,19 +150,18 @@ async fn process_packet<'a>(
 				topic,
 				payload,
 			} => {
-				let Some(channel) = state.find_publish_channel(topic) else {
-					panic!();
+				let Some(channel) = state.find_publish_channel(&topic) else {
+					return Err(StateError::DeliveryFailure((topic, retain, payload).into()));
 				};
 
 				channel
 					.send(Message {
 						topic: topic.to_topic_buf(),
 						retain,
-						payload,
+						payload: payload.to_vec().into(),
 					})
 					.await
-					.unwrap();
-				// .map_err(|p| StateError::DeliveryFailure())?;
+					.map_err(|p| StateError::DeliveryFailure(p.0))?;
 
 				Ok(())
 			}
@@ -177,8 +176,8 @@ async fn process_packet<'a>(
 					unimplemented!("duplicate Publish packets are not yet handled");
 				}
 
-				let Some(channel) = state.find_publish_channel(topic) else {
-					panic!();
+				let Some(channel) = state.find_publish_channel(&topic) else {
+					return Err(StateError::DeliveryFailure((topic, retain, payload).into()));
 				};
 
 				channel
@@ -188,11 +187,9 @@ async fn process_packet<'a>(
 						payload,
 					})
 					.await
-					.unwrap();
-				// .map_err(|p| StateError::DeliveryFailure(p.0))?;
+					.map_err(|p| StateError::DeliveryFailure(p.0))?;
 
 				state.enqueue_packet(&packets::PubAck { id });
-
 				Ok(())
 			}
 			Publish::ExactlyOnce {
@@ -216,7 +213,6 @@ async fn process_packet<'a>(
 				);
 
 				state.enqueue_packet(&packets::PubRec { id });
-
 				Ok(())
 			}
 		},
@@ -230,18 +226,17 @@ async fn process_packet<'a>(
 			Ok(())
 		}
 		Packet::PubRel(packets::PubRel { id }) => {
-			let Ok(publish) = state.pubrel(id) else {
+			let Ok(message) = state.pubrel(id) else {
 				return Err(StateError::ProtocolError(
 					"received PubRel for unknown Publish id",
 				));
 			};
 
-			let Some(channel) = state.find_publish_channel(&publish.topic) else {
-				panic!();
-				// return Err(StateError::DeliveryFailure(publish));
+			let Some(channel) = state.find_publish_channel(&message.topic) else {
+				return Err(StateError::DeliveryFailure(message));
 			};
 
-			if let Err(publish) = channel.send(publish).await {
+			if let Err(publish) = channel.send(message).await {
 				state.incoming.insert(id, publish.0);
 				return Err(StateError::HardDeliveryFailure);
 			};
@@ -298,7 +293,7 @@ async fn process_command(state: &mut ClientState, command: Command) -> Result<bo
 			retain,
 			response: response_tx,
 		}) => {
-			if let Some(response) = state.publish(&topic, payload, qos, retain, response_tx) {
+			if let Some(response) = state.publish(topic, payload, qos, retain, response_tx) {
 				let _ = response.send(());
 			};
 		}
