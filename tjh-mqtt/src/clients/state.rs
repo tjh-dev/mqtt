@@ -1,12 +1,12 @@
 use crate::{
 	misc::WrappingNonZeroU16,
-	packets::{self, Publish, SubAck, Subscribe, UnsubAck, Unsubscribe},
-	FilterBuf, Packet, PacketId, PacketType, QoS, Topic, TopicBuf,
+	packets::{self, Publish, SerializePacket, SubAck, Subscribe, UnsubAck, Unsubscribe},
+	FilterBuf, PacketId, PacketType, QoS, Topic, TopicBuf,
 };
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use core::fmt;
 use std::{
-	collections::{HashMap, VecDeque},
+	collections::HashMap,
 	num::NonZeroU16,
 	time::{Duration, Instant},
 };
@@ -27,7 +27,7 @@ pub struct ClientState<PubTx, PubResp, SubResp, UnSubResp> {
 	/// filters.
 	active_subscriptions: Vec<Subscription<PubTx>>,
 
-	pub outgoing: VecDeque<Packet>,
+	pub outgoing: BytesMut,
 
 	/// Incoming Publish packets.
 	pub incoming: HashMap<PacketId, packets::Publish>,
@@ -81,7 +81,7 @@ impl<PubTx, PubResp, SubResp, UnSubResp> Default
 	fn default() -> Self {
 		Self {
 			active_subscriptions: Vec::new(),
-			outgoing: VecDeque::new(),
+			outgoing: BytesMut::new(),
 			incoming: Default::default(),
 			publish_state: Default::default(),
 			subscribe_state: Default::default(),
@@ -99,6 +99,12 @@ impl<PubTx, PubResp, SubResp, UnSubResp> Default
 impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 	ClientState<PubTx, PubResp, SubResp, UnSubResp>
 {
+	pub fn enqueue_packet(&mut self, packet: &impl SerializePacket) {
+		packet
+			.serialize_to_bytes(&mut self.outgoing)
+			.expect("serializing to BytesMut should not failed");
+	}
+
 	pub fn unsubscribe(&mut self, filters: Vec<FilterBuf>, response: UnSubResp) {
 		let id = self.generate_unsubscribe_id();
 		self.unsubscribe_state.insert(
@@ -110,7 +116,7 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 			},
 		);
 
-		self.outgoing.push_back(Unsubscribe { id, filters }.into());
+		self.enqueue_packet(&Unsubscribe { id, filters });
 	}
 
 	pub fn unsuback(&mut self, unsuback: UnsubAck) -> Result<UnSubResp, StateError> {
@@ -175,12 +181,12 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 		!self.active_subscriptions.is_empty()
 	}
 
-	pub fn generate_resubscribe(&mut self, response: SubResp) -> Option<Packet> {
+	pub fn generate_resubscribe(&mut self, response: SubResp) -> Option<packets::Subscribe> {
 		if !self.active_subscriptions.is_empty() {
 			let filters: Vec<_> = self.active_subscriptions.drain(..).collect();
 
 			let id = self.generate_subscribe_id();
-			let packet = crate::packets::Subscribe {
+			let packet = packets::Subscribe {
 				id,
 				filters: filters
 					.iter()
@@ -197,7 +203,7 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 				},
 			);
 
-			Some(packet.into())
+			Some(packet)
 		} else {
 			None
 		}
@@ -232,15 +238,11 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 	) -> Option<PubResp> {
 		match qos {
 			QoS::AtMostOnce => {
-				// Just queue the Publish packet.
-				self.outgoing.push_back(
-					Publish::AtMostOnce {
-						retain,
-						topic,
-						payload,
-					}
-					.into(),
-				);
+				self.enqueue_packet(&Publish::AtMostOnce {
+					retain,
+					topic,
+					payload,
+				});
 
 				Some(response)
 			}
@@ -250,16 +252,13 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 					.insert(id, PublishState::Ack { response });
 
 				// Generate the first attempt.
-				self.outgoing.push_back(
-					Publish::AtLeastOnce {
-						id,
-						retain,
-						duplicate: false,
-						topic,
-						payload,
-					}
-					.into(),
-				);
+				self.enqueue_packet(&Publish::AtLeastOnce {
+					id,
+					retain,
+					duplicate: false,
+					topic,
+					payload,
+				});
 
 				None
 			}
@@ -269,16 +268,13 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 					.insert(id, PublishState::Rec { response });
 
 				// Generate the first attempt.
-				self.outgoing.push_back(
-					Publish::ExactlyOnce {
-						id,
-						retain,
-						duplicate: false,
-						topic,
-						payload,
-					}
-					.into(),
-				);
+				self.enqueue_packet(&Publish::ExactlyOnce {
+					id,
+					retain,
+					duplicate: false,
+					topic,
+					payload,
+				});
 
 				None
 			}
@@ -304,7 +300,7 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 			.insert(id, PublishState::Comp { response });
 
 		// Queue an incoming PubRel packet.
-		self.outgoing.push_back(packets::PubRel { id }.into());
+		self.enqueue_packet(&packets::PubRel { id });
 		Ok(())
 	}
 
@@ -380,7 +376,7 @@ impl<PubTx: Clone + fmt::Debug, PubResp, SubResp, UnSubResp>
 		);
 
 		// Generate the packet to send.
-		self.outgoing.push_back(Subscribe { id, filters }.into());
+		self.enqueue_packet(&Subscribe { id, filters });
 	}
 
 	/// Handles an incoming SubAck packet.

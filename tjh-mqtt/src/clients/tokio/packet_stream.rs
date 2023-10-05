@@ -1,4 +1,7 @@
-use crate::{packets::ParseError, Packet};
+use crate::{
+	packets::{ParseError, SerializePacket},
+	Packet,
+};
 use bytes::{Buf, BytesMut};
 use std::io::Cursor;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -67,13 +70,20 @@ impl<T: AsyncRead + Unpin> PacketStream<T> {
 
 impl<T: AsyncWrite + Unpin> PacketStream<T> {
 	/// Write a single [`Packet`] to the underlying stream.
-	pub async fn write_packet(&mut self, packet: &Packet) -> crate::Result<()> {
-		let mut buf = BytesMut::new();
-		packet.serialize_to_bytes(&mut buf).unwrap();
+	pub async fn write_packet(&mut self, packet: &impl SerializePacket) -> crate::Result<()> {
+		let mut buffer = BytesMut::new();
+		packet.serialize_to_bytes(&mut buffer).unwrap();
 
-		self.stream.write_all(&buf).await?;
-		self.stream.flush().await?;
+		self.write(buffer).await
+		// self.stream.write_all(&buf).await?;
+		// self.stream.flush().await?;
 
+		// Ok(())
+	}
+
+	pub async fn write(&mut self, mut buffer: impl Buf) -> crate::Result<()> {
+		tracing::trace!("writing {} bytes to stream", buffer.remaining());
+		self.stream.write_all_buf(&mut buffer).await?;
 		Ok(())
 	}
 }

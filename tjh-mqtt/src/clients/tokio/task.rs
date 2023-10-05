@@ -3,7 +3,9 @@ use crate::{
 	clients::command::{PublishCommand, SubscribeCommand, UnsubscribeCommand},
 	packets, FilterBuf, Packet, PacketType, QoS,
 };
+use bytes::BytesMut;
 use std::{
+	mem,
 	ops::{ControlFlow, ControlFlow::Continue},
 	time::Instant,
 };
@@ -25,8 +27,8 @@ pub async fn preconnect_task(
 	connection: &mut MqttStream,
 	reconnect_delay: &mut HoldOff,
 ) -> crate::Result<ControlFlow<(), ()>> {
-	let connect_packet: Packet = state.connect.clone().into();
-	connection.write_packet(&connect_packet).await?;
+	// Send a Connect packet to the Server.
+	connection.write_packet(&state.connect).await?;
 
 	let sleep = time::sleep(state.keep_alive);
 	tokio::pin!(sleep);
@@ -114,16 +116,18 @@ async fn connected_task(
 				// If we are about to send a packet to the Server, we don't need to send a PingReq.
 				if state.outgoing.is_empty() {
 					state.pingreq_state = Some(Instant::now());
-					state.outgoing.push_back(Packet::PingReq);
+					state.enqueue_packet(&packets::PingReq);
 				}
 			}
 		}
 
-		let update_keep_alive = !state.outgoing.is_empty();
-		for packet in state.outgoing.drain(..) {
-			tracing::trace!(packet = ?packet, "writing to stream");
-			connection.write_packet(&packet).await?;
-		}
+		let update_keep_alive = if !state.outgoing.is_empty() {
+			let buffer = mem::replace(&mut state.outgoing, BytesMut::new()).freeze();
+			connection.write(buffer).await?;
+			true
+		} else {
+			false
+		};
 
 		if update_keep_alive {
 			// We've just sent a packet, update the keep alive.
@@ -180,7 +184,9 @@ async fn process_packet(state: &mut ClientState, packet: Packet) -> Result<(), S
 					})
 					.await
 					.map_err(|p| StateError::DeliveryFailure(p.0))?;
-				state.outgoing.push_back(packets::PubAck { id }.into());
+
+				state.enqueue_packet(&packets::PubAck { id });
+
 				Ok(())
 			}
 			Publish::ExactlyOnce {
@@ -200,7 +206,9 @@ async fn process_packet(state: &mut ClientState, packet: Packet) -> Result<(), S
 						payload,
 					},
 				);
-				state.outgoing.push_back(packets::PubRec { id }.into());
+
+				state.enqueue_packet(&packets::PubRec { id });
+
 				Ok(())
 			}
 		},
@@ -231,7 +239,7 @@ async fn process_packet(state: &mut ClientState, packet: Packet) -> Result<(), S
 
 			// We've successfully passed on the Publish message. Queue up a PubComp
 			// packet
-			state.outgoing.push_back(packets::PubComp { id }.into());
+			state.enqueue_packet(&packets::PubComp { id });
 
 			Ok(())
 		}
@@ -271,7 +279,7 @@ async fn process_command(state: &mut ClientState, command: Command) -> Result<bo
 	match command {
 		Command::Shutdown => {
 			// TODO: This shutdown process could be better.
-			state.outgoing.push_back(Packet::Disconnect);
+			state.enqueue_packet(&packets::Disconnect);
 			return Ok(true);
 		}
 		Command::Publish(PublishCommand {

@@ -4,6 +4,10 @@ use std::{borrow::Cow, error, fmt, io, str::Utf8Error};
 
 const DEFAULT_PROTOCOL_NAME: &str = "MQTT";
 
+pub trait SerializePacket {
+	fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), serde::WriteError>;
+}
+
 #[derive(Debug)]
 pub struct SubscribeFailed;
 
@@ -661,6 +665,31 @@ impl fmt::Display for ParseError {
 }
 
 impl error::Error for ParseError {}
+
+macro_rules! impl_serialize {
+	($name:tt) => {
+		impl SerializePacket for $name {
+			fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), serde::WriteError> {
+				Self::serialize_to_bytes(&self, dst)
+			}
+		}
+	};
+}
+
+impl_serialize!(Connect);
+impl_serialize!(ConnAck);
+impl_serialize!(Publish);
+impl_serialize!(PubAck);
+impl_serialize!(PubRec);
+impl_serialize!(PubRel);
+impl_serialize!(PubComp);
+impl_serialize!(Subscribe);
+impl_serialize!(SubAck);
+impl_serialize!(Unsubscribe);
+impl_serialize!(UnsubAck);
+impl_serialize!(PingReq);
+impl_serialize!(PingResp);
+impl_serialize!(Disconnect);
 
 macro_rules! id_packet {
 	($name:tt,$variant:expr,$header:literal) => {

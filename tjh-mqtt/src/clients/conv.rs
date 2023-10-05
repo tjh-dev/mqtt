@@ -6,7 +6,7 @@ pub struct Filters(pub(crate) Vec<FilterBuf>);
 /// A collection of (FilterBuf, QoS).
 pub struct FiltersWithQoS(pub(crate) Vec<(FilterBuf, QoS)>);
 
-impl<'a, T: AsRef<str>> TryFrom<&[T]> for Filters {
+impl<T: AsRef<str>> TryFrom<&[T]> for Filters {
 	type Error = InvalidFilter;
 	fn try_from(value: &[T]) -> Result<Self, Self::Error> {
 		let mut filters = Vec::with_capacity(value.len());
@@ -63,7 +63,7 @@ impl TryFrom<FilterBuf> for FiltersWithQoS {
 	}
 }
 
-impl<'a, T: AsRef<str>, const N: usize> TryFrom<[T; N]> for FiltersWithQoS {
+impl<T: AsRef<str>, const N: usize> TryFrom<[T; N]> for FiltersWithQoS {
 	type Error = InvalidFilter;
 	fn try_from(value: [T; N]) -> Result<Self, Self::Error> {
 		let mut filters = Vec::with_capacity(N);
@@ -74,7 +74,7 @@ impl<'a, T: AsRef<str>, const N: usize> TryFrom<[T; N]> for FiltersWithQoS {
 	}
 }
 
-impl<'a, T: AsRef<str>> TryFrom<&[T]> for FiltersWithQoS {
+impl<T: AsRef<str>> TryFrom<&[T]> for FiltersWithQoS {
 	type Error = InvalidFilter;
 	fn try_from(value: &[T]) -> Result<Self, Self::Error> {
 		let mut filters = Vec::with_capacity(value.len());
