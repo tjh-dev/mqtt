@@ -74,7 +74,6 @@ impl<T: AsyncWrite + Unpin> PacketStream<T> {
 		self.stream.write_all(&buf).await?;
 		self.stream.flush().await?;
 
-		tracing::debug!("wrote {packet:?} to stream");
 		Ok(())
 	}
 }

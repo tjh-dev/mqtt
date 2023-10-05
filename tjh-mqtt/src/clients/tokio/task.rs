@@ -37,7 +37,7 @@ pub async fn preconnect_task(
 		result = connection.read_packet() => {
 			match result {
 				Ok(Some(Packet::ConnAck(connack))) => {
-					tracing::info!(packet = ?connack, "read from stream");
+					tracing::trace!(packet = ?connack, "read from stream");
 					if connack.code == 0x80 {
 						return Ok(Continue(()))
 					}
@@ -121,7 +121,7 @@ async fn connected_task(
 
 		let update_keep_alive = !state.outgoing.is_empty();
 		for packet in state.outgoing.drain(..) {
-			tracing::info!(packet = ?packet, "writing to stream");
+			tracing::trace!(packet = ?packet, "writing to stream");
 			connection.write_packet(&packet).await?;
 		}
 
