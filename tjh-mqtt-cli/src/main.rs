@@ -154,6 +154,7 @@ fn build_client_id(clean_session: bool) -> String {
 }
 
 #[derive(Debug, Parser)]
+#[clap(version, author)]
 struct Arguments {
 	#[command(subcommand)]
 	command: Commands,
