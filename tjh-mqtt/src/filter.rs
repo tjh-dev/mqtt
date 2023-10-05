@@ -1,5 +1,5 @@
 use crate::Topic;
-use std::{borrow, cmp, ops};
+use std::{borrow, cmp, convert, ops};
 use thiserror::Error;
 
 const LEVEL_SEPARATOR: char = '/';
@@ -234,6 +234,36 @@ impl AsRef<Filter> for FilterBuf {
 	#[inline]
 	fn as_ref(&self) -> &Filter {
 		Filter::from_str(self.as_str())
+	}
+}
+
+impl AsRef<str> for FilterBuf {
+	#[inline]
+	fn as_ref(&self) -> &str {
+		&self.0
+	}
+}
+
+impl TryFrom<&str> for FilterBuf {
+	type Error = InvalidFilter;
+	#[inline]
+	fn try_from(value: &str) -> Result<Self, Self::Error> {
+		Self::new(value)
+	}
+}
+
+impl TryFrom<String> for FilterBuf {
+	type Error = InvalidFilter;
+	#[inline]
+	fn try_from(value: String) -> Result<Self, Self::Error> {
+		Self::new(value)
+	}
+}
+
+// This may be a bad idea?
+impl From<convert::Infallible> for InvalidFilter {
+	fn from(_: convert::Infallible) -> Self {
+		unreachable!()
 	}
 }
 

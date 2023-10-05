@@ -10,6 +10,7 @@ use crate::{
 };
 use bytes::Bytes;
 use core::fmt;
+use std::convert;
 pub use subscription::{Message, Subscription};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
@@ -216,5 +217,11 @@ impl<T> From<mpsc::error::SendError<T>> for ClientError {
 impl From<oneshot::error::RecvError> for ClientError {
 	fn from(_: oneshot::error::RecvError) -> Self {
 		Self::ClientTaskClosed
+	}
+}
+
+impl From<convert::Infallible> for ClientError {
+	fn from(_: convert::Infallible) -> Self {
+		unreachable!("infallible conversions cannot fail")
 	}
 }
