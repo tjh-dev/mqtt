@@ -114,7 +114,10 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 		}
 	}
 
-	pub fn enqueue_packet(&mut self, packet: &impl SerializePacket) {
+	pub fn enqueue_packet(&mut self, packet: &(impl SerializePacket + fmt::Debug)) {
+		#[cfg(feature = "tokio-client")]
+		tracing::trace!(?packet, "enqueueing");
+
 		packet
 			.serialize_to_bytes(&mut self.outgoing)
 			.expect("serializing to BytesMut should not failed");
@@ -351,33 +354,23 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 	}
 
 	/// Finds a channel to publish messages for `topic` to.
+	#[inline]
 	pub fn find_publish_channel(&self, topic: &Topic) -> Option<&PubTx> {
 		let start = Instant::now();
 
-		let Some((filter, score, channel)) = self
-			.active_subscriptions
-			.iter()
-			.filter_map(
-				|Subscription {
-				     filter, channel, ..
-				 }| {
-					filter
-						.matches_topic(topic)
-						.map(|score| (filter, score.score(), channel))
-				},
-			)
-			.max_by_key(|(_, score, _)| *score)
-		else {
-			#[cfg(feature = "tokio-client")]
-			tracing::error!(topic = ?topic, "failed to find channel for");
-			return None;
-		};
+		for Subscription {
+			filter, channel, ..
+		} in &self.active_subscriptions
+		{
+			if filter.matches_topic(topic) {
+				let time = start.elapsed();
+				#[cfg(feature = "tokio-client")]
+				tracing::info!(topic = ?topic, filter = ?filter, time = ?time, "found channel for");
+				return Some(channel);
+			}
+		}
 
-		let time = start.elapsed();
-		#[cfg(feature = "tokio-client")]
-		tracing::trace!(topic = ?topic, filter = ?filter, score = ?score, time = ?time, "found channel for");
-
-		Some(channel)
+		None
 	}
 }
 
@@ -470,6 +463,10 @@ impl<PubTx: Clone + fmt::Debug, PubResp, SubResp, UnSubResp>
 				channel: channel.clone(),
 			});
 		}
+
+		// Sort the filters based on how specific they are.
+		self.active_subscriptions
+			.sort_by_key(|Subscription { filter, .. }| filter.score());
 
 		Ok((
 			response,
