@@ -1,11 +1,13 @@
 use super::{mqtt_stream::MqttStream, Command, CommandRx, HoldOff, StateError};
 use crate::{
-	clients::command::{PublishCommand, SubscribeCommand, UnsubscribeCommand},
-	packets, FilterBuf, Packet, PacketType, QoS,
+	clients::{
+		command::{PublishCommand, SubscribeCommand, UnsubscribeCommand},
+		tokio::Message,
+	},
+	packets::{self, DeserializePacket},
+	FilterBuf, Packet, PacketType, QoS,
 };
-use bytes::BytesMut;
 use std::{
-	mem,
 	ops::{ControlFlow, ControlFlow::Continue},
 	time::Instant,
 };
@@ -15,7 +17,8 @@ use tokio::{
 };
 
 type ClientState = super::ClientState<
-	mpsc::Sender<packets::Publish>,
+	'static,
+	mpsc::Sender<Message>,
 	oneshot::Sender<()>,
 	oneshot::Sender<Vec<(FilterBuf, QoS)>>,
 	oneshot::Sender<()>,
@@ -27,6 +30,8 @@ pub async fn preconnect_task(
 	connection: &mut MqttStream,
 	reconnect_delay: &mut HoldOff,
 ) -> crate::Result<ControlFlow<(), ()>> {
+	use packets::ConnAck;
+
 	// Send a Connect packet to the Server.
 	connection.write_packet(&state.connect).await?;
 
@@ -34,26 +39,17 @@ pub async fn preconnect_task(
 	tokio::pin!(sleep);
 
 	// Wait for ConnAck
-	#[rustfmt::skip]
-	let packets::ConnAck { session_present, .. } = tokio::select! {
-		result = connection.read_packet() => {
-			match result {
-				Ok(Some(Packet::ConnAck(connack))) => {
-					tracing::trace!(packet = ?connack, "read from stream");
-					if connack.code == 0x80 {
-						return Ok(Continue(()))
-					}
-					reconnect_delay.reset();
-					connack
-				}
-				_ => return Ok(Continue(())),
-			}
-		}
-		_ = &mut sleep => {
-			return Ok(Continue(()))
-		}
+	let frame = tokio::select! {
+		Ok(Some(frame)) = connection.read_frame() => frame,
+		_ = &mut sleep => return Ok(Continue(())),
 	};
 
+	let connack = ConnAck::from_frame(&frame)?;
+	let session_present = connack.session_present;
+
+	// TODO: Check return code.
+
+	reconnect_delay.reset();
 	connected_task(state, command_channel, connection, session_present).await
 }
 
@@ -71,8 +67,9 @@ async fn connected_task(
 	//
 	if !session_present && state.has_active_subscriptions() {
 		let (tx, rx) = oneshot::channel();
-		if let Some(packet) = state.generate_resubscribe(tx) {
-			connection.write_packet(&packet).await?;
+		if state.generate_resubscribe(tx) {
+			let buffer = state.outgoing.split().freeze();
+			connection.write(buffer).await?;
 		}
 
 		tokio::spawn(async move { tracing::debug!(?rx.await) });
@@ -96,13 +93,14 @@ async fn connected_task(
 					}
 				}
 			}
-			Ok(packet) = connection.read_packet() => {
-				let Some(packet) = packet else {
+			Ok(frame) = connection.read_frame() => {
+				let Some(frame) = frame else {
 					tracing::warn!("connection reset by peer");
 					return Ok(Continue(()))
 				};
 
-				tracing::debug!(packet = ?packet, "read from stream");
+				tracing::debug!(packet = ?frame, "read from stream");
+				let packet: Packet = Packet::parse(&frame)?;
 				if process_packet(state, packet).await.is_err() {
 					return Ok(Continue(()));
 				}
@@ -122,7 +120,7 @@ async fn connected_task(
 		}
 
 		let update_keep_alive = if !state.outgoing.is_empty() {
-			let buffer = mem::replace(&mut state.outgoing, BytesMut::new()).freeze();
+			let buffer = state.outgoing.split().freeze();
 			connection.write(buffer).await?;
 			true
 		} else {
@@ -138,7 +136,10 @@ async fn connected_task(
 	Ok(ControlFlow::Break(()))
 }
 
-async fn process_packet(state: &mut ClientState, packet: Packet) -> Result<(), StateError> {
+async fn process_packet<'a>(
+	state: &'a mut ClientState,
+	packet: Packet<'a>,
+) -> Result<(), StateError<'a>> {
 	use packets::Publish;
 
 	match packet {
@@ -153,13 +154,13 @@ async fn process_packet(state: &mut ClientState, packet: Packet) -> Result<(), S
 				};
 
 				channel
-					.send(Publish::AtMostOnce {
-						retain,
-						topic,
+					.send(Message {
+						topic: topic.to_topic_buf(),
 						payload,
 					})
 					.await
-					.map_err(|p| StateError::DeliveryFailure(p.0))?;
+					.unwrap();
+				// .map_err(|p| StateError::DeliveryFailure())?;
 
 				Ok(())
 			}
@@ -175,15 +176,13 @@ async fn process_packet(state: &mut ClientState, packet: Packet) -> Result<(), S
 				};
 
 				channel
-					.send(Publish::AtLeastOnce {
-						id,
-						retain,
-						duplicate,
-						topic,
+					.send(Message {
+						topic: topic.to_topic_buf(),
 						payload,
 					})
 					.await
-					.map_err(|p| StateError::DeliveryFailure(p.0))?;
+					.unwrap();
+				// .map_err(|p| StateError::DeliveryFailure(p.0))?;
 
 				state.enqueue_packet(&packets::PubAck { id });
 
@@ -198,11 +197,8 @@ async fn process_packet(state: &mut ClientState, packet: Packet) -> Result<(), S
 			} => {
 				state.incoming.insert(
 					id,
-					Publish::ExactlyOnce {
-						id,
-						retain,
-						duplicate,
-						topic,
+					Message {
+						topic: topic.to_topic_buf(),
 						payload,
 					},
 				);
@@ -228,8 +224,9 @@ async fn process_packet(state: &mut ClientState, packet: Packet) -> Result<(), S
 				));
 			};
 
-			let Some(channel) = state.find_publish_channel(publish.topic()) else {
-				return Err(StateError::DeliveryFailure(publish));
+			let Some(channel) = state.find_publish_channel(&publish.topic) else {
+				panic!();
+				// return Err(StateError::DeliveryFailure(publish));
 			};
 
 			if let Err(publish) = channel.send(publish).await {
@@ -289,7 +286,7 @@ async fn process_command(state: &mut ClientState, command: Command) -> Result<bo
 			retain,
 			response: response_tx,
 		}) => {
-			if let Some(response) = state.publish(topic, payload, qos, retain, response_tx) {
+			if let Some(response) = state.publish(&topic, payload, qos, retain, response_tx) {
 				let _ = response.send(());
 			};
 		}

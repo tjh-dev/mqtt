@@ -1,4 +1,6 @@
-use crate::{filter, misc, serde, FilterBuf, InvalidQoS, Packet, PacketId, QoS, Topic, TopicBuf};
+use crate::{
+	filter, misc, serde, Filter, FilterBuf, InvalidQoS, Packet, PacketId, QoS, Topic, TopicBuf,
+};
 use bytes::{Buf, BufMut, Bytes};
 use std::{borrow::Cow, error, fmt, io, str::Utf8Error};
 
@@ -8,8 +10,43 @@ pub trait SerializePacket {
 	fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), serde::WriteError>;
 }
 
+pub trait DeserializePacket<'a>: Sized {
+	fn from_frame(frame: &'a Frame) -> Result<Self, ParseError>;
+}
+
 #[derive(Debug)]
 pub struct SubscribeFailed;
+
+#[derive(Debug)]
+pub struct Frame {
+	pub header: u8,
+	pub payload: Bytes,
+}
+
+impl Frame {
+	/// Checks if a complete [`Packet`] can be decoded from `src`. If so,
+	/// returns the length of the packet.
+	pub fn check(src: &mut io::Cursor<&[u8]>) -> Result<usize, ParseError> {
+		let header = serde::get_u8(src)?;
+		if header == 0 || header == 0xf0 {
+			return Err(ParseError::InvalidHeader);
+		}
+
+		let length = serde::get_var(src)?;
+		let _ = serde::get_slice(src, length)?;
+		Ok(src.position() as _)
+	}
+
+	/// Parses a [`Frame`] from `src`.
+	pub fn parse(mut packet: Bytes) -> Result<Self, ParseError> {
+		let mut cursor = io::Cursor::new(&packet[..]);
+		let header = serde::get_u8(&mut cursor)?;
+		let _ = serde::get_var(&mut cursor)?;
+
+		let payload = packet.split_off(cursor.position() as _);
+		Ok(Self { header, payload })
+	}
+}
 
 //
 // Packet Types
@@ -18,9 +55,9 @@ pub struct SubscribeFailed;
 /// A `Connect` packet is sent by the Client to the Server to initialise a
 /// session.
 #[derive(Clone, Debug)]
-pub struct Connect {
+pub struct Connect<'a> {
 	/// Protocol name. Should always be `"MQTT"`.
-	pub protocol_name: Cow<'static, str>,
+	pub protocol_name: Cow<'a, str>,
 
 	/// Protocol version.
 	pub protocol_level: u8,
@@ -28,7 +65,7 @@ pub struct Connect {
 	/// Client ID.
 	///
 	/// The Server _may_ accept an empty client ID.
-	pub client_id: Cow<'static, str>,
+	pub client_id: Cow<'a, str>,
 
 	/// Keep-alive timeout in seconds.
 	pub keep_alive: u16,
@@ -58,24 +95,24 @@ pub struct ConnAck {
 	pub code: u8,
 }
 
-pub enum Publish {
+pub enum Publish<'a> {
 	AtMostOnce {
 		retain: bool,
-		topic: TopicBuf,
+		topic: &'a Topic,
 		payload: Bytes,
 	},
 	AtLeastOnce {
 		id: PacketId,
 		retain: bool,
 		duplicate: bool,
-		topic: TopicBuf,
+		topic: &'a Topic,
 		payload: Bytes,
 	},
 	ExactlyOnce {
 		id: PacketId,
 		retain: bool,
 		duplicate: bool,
-		topic: TopicBuf,
+		topic: &'a Topic,
 		payload: Bytes,
 	},
 }
@@ -86,9 +123,9 @@ id_packet!(PubRel, Packet::PubRel, 0x62);
 id_packet!(PubComp, Packet::PubComp, 0x70);
 
 #[derive(Debug)]
-pub struct Subscribe {
+pub struct Subscribe<'a> {
 	pub id: PacketId,
-	pub filters: Vec<(FilterBuf, QoS)>,
+	pub filters: Vec<(&'a Filter, QoS)>,
 }
 
 #[derive(Debug)]
@@ -111,7 +148,7 @@ nul_packet!(Disconnect, crate::packet::Packet::Disconnect, 0xe0);
 mod connect {
 	use super::*;
 
-	impl Default for Connect {
+	impl<'a> Default for Connect<'a> {
 		fn default() -> Self {
 			Self {
 				protocol_name: Cow::Borrowed(DEFAULT_PROTOCOL_NAME),
@@ -125,7 +162,7 @@ mod connect {
 		}
 	}
 
-	impl Connect {
+	impl<'a> Connect<'a> {
 		pub fn parse(payload: &[u8]) -> Result<Self, ParseError> {
 			let mut cursor = io::Cursor::new(payload);
 			let protocol_name = match serde::get_str(&mut cursor)? {
@@ -311,15 +348,15 @@ const PUBLISH_HEADER_RETAIN_FLAG: u8 = 0x01;
 const PUBLISH_HEADER_DUPLICATE_FLAG: u8 = 0x08;
 const PUBLISH_HEADER_QOS_MASK: u8 = 0x06;
 
-impl Publish {
-	pub fn parse(payload: &[u8], flags: u8) -> Result<Self, ParseError> {
+impl<'a> Publish<'a> {
+	pub fn parse(payload: &'a [u8], flags: u8) -> Result<Self, ParseError> {
 		let mut cursor = io::Cursor::new(payload);
 		// Extract properties from the header flags.
 		let retain = flags & PUBLISH_HEADER_RETAIN_FLAG == PUBLISH_HEADER_RETAIN_FLAG;
 		let duplicate = flags & PUBLISH_HEADER_DUPLICATE_FLAG == PUBLISH_HEADER_DUPLICATE_FLAG;
 		let qos: QoS = ((flags & PUBLISH_HEADER_QOS_MASK) >> 1).try_into()?;
 
-		let topic = TopicBuf::new(serde::get_str(&mut cursor)?)?;
+		let topic = Topic::new(serde::get_str(&mut cursor)?)?;
 
 		// The interpretation of the remaining bytes depends on the QoS.
 		match qos {
@@ -494,7 +531,7 @@ impl Publish {
 	}
 }
 
-impl fmt::Debug for Publish {
+impl fmt::Debug for Publish<'_> {
 	#[inline]
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		f.debug_struct("Publish")
@@ -508,9 +545,9 @@ impl fmt::Debug for Publish {
 	}
 }
 
-impl Subscribe {
+impl<'a> Subscribe<'a> {
 	/// Parses the payload of a [`Subscribe`] packet.
-	pub fn parse(payload: &[u8]) -> Result<Self, ParseError> {
+	pub fn parse(payload: &'a [u8]) -> Result<Self, ParseError> {
 		let mut cursor = io::Cursor::new(payload);
 		let id = serde::get_id(&mut cursor)?;
 
@@ -518,7 +555,7 @@ impl Subscribe {
 		while cursor.has_remaining() {
 			let filter = serde::get_str(&mut cursor)?;
 			let qos: QoS = serde::get_u8(&mut cursor)?.try_into()?;
-			filters.push((FilterBuf::new(filter)?, qos));
+			filters.push((Filter::new(filter)?, qos));
 		}
 
 		Ok(Self { id, filters })
@@ -674,22 +711,35 @@ macro_rules! impl_serialize {
 			}
 		}
 	};
+	($name:tt,$lt:tt) => {
+		impl<'lt> SerializePacket for $name<'lt> {
+			fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), serde::WriteError> {
+				Self::serialize_to_bytes(&self, dst)
+			}
+		}
+	};
 }
 
-impl_serialize!(Connect);
+impl_serialize!(Connect, a);
 impl_serialize!(ConnAck);
-impl_serialize!(Publish);
+impl_serialize!(Publish, a);
 impl_serialize!(PubAck);
 impl_serialize!(PubRec);
 impl_serialize!(PubRel);
 impl_serialize!(PubComp);
-impl_serialize!(Subscribe);
+impl_serialize!(Subscribe, a);
 impl_serialize!(SubAck);
 impl_serialize!(Unsubscribe);
 impl_serialize!(UnsubAck);
 impl_serialize!(PingReq);
 impl_serialize!(PingResp);
 impl_serialize!(Disconnect);
+
+impl<'a> DeserializePacket<'a> for ConnAck {
+	fn from_frame(frame: &'a Frame) -> Result<Self, ParseError> {
+		Self::parse(&frame.payload[..])
+	}
+}
 
 macro_rules! id_packet {
 	($name:tt,$variant:expr,$header:literal) => {
@@ -721,9 +771,9 @@ macro_rules! id_packet {
 			}
 		}
 
-		impl From<$name> for Packet {
+		impl<'a> From<$name> for Packet<'a> {
 			#[inline]
-			fn from(value: $name) -> Packet {
+			fn from(value: $name) -> Packet<'a> {
 				$variant(value)
 			}
 		}
@@ -754,9 +804,9 @@ macro_rules! nul_packet {
 			}
 		}
 
-		impl From<$name> for crate::packet::Packet {
+		impl<'a> From<$name> for crate::packet::Packet<'a> {
 			#[inline]
-			fn from(_: $name) -> crate::packet::Packet {
+			fn from(_: $name) -> crate::packet::Packet<'a> {
 				$variant
 			}
 		}

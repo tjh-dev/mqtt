@@ -1,7 +1,7 @@
 use crate::{
 	packets::{
-		ConnAck, Connect, Disconnect, ParseError, PingReq, PingResp, PubAck, PubComp, PubRec,
-		PubRel, Publish, SubAck, Subscribe, UnsubAck, Unsubscribe,
+		ConnAck, Connect, Disconnect, Frame, ParseError, PingReq, PingResp, PubAck, PubComp,
+		PubRec, PubRel, Publish, SubAck, Subscribe, UnsubAck, Unsubscribe,
 	},
 	serde,
 };
@@ -9,15 +9,15 @@ use bytes::BufMut;
 use std::io;
 
 #[derive(Debug)]
-pub enum Packet {
-	Connect(Box<Connect>),
+pub enum Packet<'a> {
+	Connect(Box<Connect<'a>>),
 	ConnAck(ConnAck),
-	Publish(Box<Publish>),
+	Publish(Box<Publish<'a>>),
 	PubAck(PubAck),
 	PubRec(PubRec),
 	PubRel(PubRel),
 	PubComp(PubComp),
-	Subscribe(Box<Subscribe>),
+	Subscribe(Box<Subscribe<'a>>),
 	SubAck(Box<SubAck>),
 	Unsubscribe(Box<Unsubscribe>),
 	UnsubAck(UnsubAck),
@@ -59,7 +59,7 @@ const PINGREQ: u8 = 0xc0;
 const PINGRESP: u8 = 0xd0;
 const DISCONNECT: u8 = 0xe0;
 
-impl Packet {
+impl<'a> Packet<'a> {
 	/// Checks if a complete [`Packet`] can be decoded from `src`. If so,
 	/// returns the length of the packet.
 	pub fn check(src: &mut io::Cursor<&[u8]>) -> Result<u64, ParseError> {
@@ -74,10 +74,10 @@ impl Packet {
 	}
 
 	/// Parses a [`Packet`] from src.
-	pub fn parse(src: &mut io::Cursor<&[u8]>) -> Result<Self, ParseError> {
-		let header = serde::get_u8(src)?;
-		let length = serde::get_var(src)?;
-		let payload = serde::get_slice(src, length)?;
+	pub fn parse(frame: &'a Frame) -> Result<Self, ParseError> {
+		let header = frame.header;
+		// let length = frame.payload.len();
+		let payload = &frame.payload;
 
 		match (header & 0xf0, header & 0x0f) {
 			(CONNECT, 0x00) => Ok(Connect::parse(payload)?.into()),
@@ -138,42 +138,42 @@ impl Packet {
 	}
 }
 
-impl From<Connect> for Packet {
+impl<'a> From<Connect<'a>> for Packet<'a> {
 	#[inline]
-	fn from(value: Connect) -> Self {
+	fn from(value: Connect<'a>) -> Self {
 		Self::Connect(value.into())
 	}
 }
 
-impl From<ConnAck> for Packet {
+impl<'a> From<ConnAck> for Packet<'a> {
 	#[inline]
 	fn from(value: ConnAck) -> Self {
 		Self::ConnAck(value)
 	}
 }
 
-impl From<Publish> for Packet {
+impl<'a> From<Publish<'a>> for Packet<'a> {
 	#[inline]
-	fn from(value: Publish) -> Self {
+	fn from(value: Publish<'a>) -> Self {
 		Self::Publish(value.into())
 	}
 }
 
-impl From<Subscribe> for Packet {
+impl<'a> From<Subscribe<'a>> for Packet<'a> {
 	#[inline]
-	fn from(value: Subscribe) -> Self {
+	fn from(value: Subscribe<'a>) -> Self {
 		Self::Subscribe(value.into())
 	}
 }
 
-impl From<SubAck> for Packet {
+impl<'a> From<SubAck> for Packet<'a> {
 	#[inline]
 	fn from(value: SubAck) -> Self {
 		Self::SubAck(value.into())
 	}
 }
 
-impl From<Unsubscribe> for Packet {
+impl<'a> From<Unsubscribe> for Packet<'a> {
 	#[inline]
 	fn from(value: Unsubscribe) -> Self {
 		Self::Unsubscribe(value.into())

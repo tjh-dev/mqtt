@@ -1,7 +1,7 @@
 use crate::{
 	misc::WrappingNonZeroU16,
 	packets::{self, Publish, SerializePacket, SubAck, Subscribe, UnsubAck, Unsubscribe},
-	FilterBuf, PacketId, PacketType, QoS, Topic, TopicBuf,
+	FilterBuf, PacketId, PacketType, QoS, Topic,
 };
 use bytes::{Bytes, BytesMut};
 use core::fmt;
@@ -11,18 +11,20 @@ use std::{
 	time::{Duration, Instant},
 };
 
+use super::tokio::Message;
+
 #[derive(Debug)]
-pub enum StateError {
+pub enum StateError<'a> {
 	Unsolicited(PacketType),
 	/// The Client received a packet that the Server should not send.
 	InvalidPacket,
 	ProtocolError(&'static str),
-	DeliveryFailure(Publish),
+	DeliveryFailure(Publish<'a>),
 	HardDeliveryFailure,
 }
 
 #[derive(Debug)]
-pub struct ClientState<PubTx, PubResp, SubResp, UnSubResp> {
+pub struct ClientState<'a, PubTx, PubResp, SubResp, UnSubResp> {
 	/// Active subscriptions. All incoming packets are matched against these
 	/// filters.
 	active_subscriptions: Vec<Subscription<PubTx>>,
@@ -30,7 +32,7 @@ pub struct ClientState<PubTx, PubResp, SubResp, UnSubResp> {
 	pub outgoing: BytesMut,
 
 	/// Incoming Publish packets.
-	pub incoming: HashMap<PacketId, packets::Publish>,
+	pub incoming: HashMap<PacketId, Message>,
 
 	publish_state: HashMap<PacketId, PublishState<PubResp>>,
 	subscribe_state: HashMap<PacketId, SubscribeState<PubTx, SubResp>>,
@@ -40,7 +42,7 @@ pub struct ClientState<PubTx, PubResp, SubResp, UnSubResp> {
 	subscribe_packet_id: WrappingNonZeroU16,
 	unsubscribe_packet_id: WrappingNonZeroU16,
 
-	pub connect: packets::Connect,
+	pub connect: packets::Connect<'a>,
 	pub keep_alive: Duration,
 
 	// This is Some if there is a active PingReq request.
@@ -75,8 +77,8 @@ struct UnsubscribeState<T> {
 	expires: Instant,
 }
 
-impl<PubTx, PubResp, SubResp, UnSubResp> Default
-	for ClientState<PubTx, PubResp, SubResp, UnSubResp>
+impl<'a, PubTx, PubResp, SubResp, UnSubResp> Default
+	for ClientState<'a, PubTx, PubResp, SubResp, UnSubResp>
 {
 	fn default() -> Self {
 		Self {
@@ -96,8 +98,8 @@ impl<PubTx, PubResp, SubResp, UnSubResp> Default
 	}
 }
 
-impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
-	ClientState<PubTx, PubResp, SubResp, UnSubResp>
+impl<'a, PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
+	ClientState<'a, PubTx, PubResp, SubResp, UnSubResp>
 {
 	pub fn enqueue_packet(&mut self, packet: &impl SerializePacket) {
 		packet
@@ -181,7 +183,7 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 		!self.active_subscriptions.is_empty()
 	}
 
-	pub fn generate_resubscribe(&mut self, response: SubResp) -> Option<packets::Subscribe> {
+	pub fn generate_resubscribe(&mut self, response: SubResp) -> bool {
 		if !self.active_subscriptions.is_empty() {
 			let filters: Vec<_> = self.active_subscriptions.drain(..).collect();
 
@@ -190,9 +192,11 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 				id,
 				filters: filters
 					.iter()
-					.map(|Subscription { filter, qos, .. }| (filter.clone(), *qos))
+					.map(|Subscription { filter, qos, .. }| (filter.as_ref(), *qos))
 					.collect(),
 			};
+
+			self.enqueue_packet(&packet);
 
 			self.subscribe_state.insert(
 				id,
@@ -203,9 +207,9 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 				},
 			);
 
-			Some(packet)
+			true
 		} else {
-			None
+			false
 		}
 	}
 
@@ -230,7 +234,7 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 	/// Generates an outgoing Publish packet.
 	pub fn publish(
 		&mut self,
-		topic: TopicBuf,
+		topic: &Topic,
 		payload: Bytes,
 		qos: QoS,
 		retain: bool,
@@ -313,12 +317,12 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 		Ok(response)
 	}
 
-	pub fn pubrel(&mut self, id: PacketId) -> Result<Publish, StateError> {
-		let Some(publish) = self.incoming.remove(&id) else {
+	pub fn pubrel(&mut self, id: PacketId) -> Result<Message, StateError> {
+		let Some(message) = self.incoming.remove(&id) else {
 			return Err(StateError::Unsolicited(PacketType::PubRel));
 		};
 
-		Ok(publish)
+		Ok(message)
 	}
 
 	/// Finds a channel to publish messages for `topic` to.
@@ -352,8 +356,8 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 	}
 }
 
-impl<PubTx: Clone + fmt::Debug, PubResp, SubResp, UnSubResp>
-	ClientState<PubTx, PubResp, SubResp, UnSubResp>
+impl<'a, PubTx: Clone + fmt::Debug, PubResp, SubResp, UnSubResp>
+	ClientState<'a, PubTx, PubResp, SubResp, UnSubResp>
 {
 	pub fn subscribe(&mut self, filters: Vec<(FilterBuf, QoS)>, channel: PubTx, response: SubResp) {
 		// Generate an ID for the subscribe packet.
@@ -365,7 +369,7 @@ impl<PubTx: Clone + fmt::Debug, PubResp, SubResp, UnSubResp>
 				filters: filters
 					.iter()
 					.map(|(filter, qos)| Subscription {
-						filter: filter.clone(),
+						filter: filter.to_filter_buf(),
 						qos: *qos,
 						channel: channel.clone(),
 					})
@@ -376,7 +380,13 @@ impl<PubTx: Clone + fmt::Debug, PubResp, SubResp, UnSubResp>
 		);
 
 		// Generate the packet to send.
-		self.enqueue_packet(&Subscribe { id, filters });
+		self.enqueue_packet(&Subscribe {
+			id,
+			filters: filters
+				.iter()
+				.map(|(filter, qos)| (filter.as_ref(), *qos))
+				.collect(),
+		});
 	}
 
 	/// Handles an incoming SubAck packet.

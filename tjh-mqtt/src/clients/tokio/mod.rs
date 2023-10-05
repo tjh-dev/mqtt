@@ -7,8 +7,7 @@ use super::{holdoff::HoldOff, ClientState, StateError};
 use crate::{
 	clients::tokio::mqtt_stream::MqttStream,
 	misc::{Credentials, Will},
-	packets::{self, Publish},
-	FilterBuf, QoS,
+	packets, FilterBuf, QoS,
 };
 use std::{ops::ControlFlow::Break, time::Duration};
 use tokio::{
@@ -19,11 +18,11 @@ use tokio::{
 
 pub use client::{Client, Message, Subscription};
 
-pub type PublishTx = mpsc::Sender<packets::Publish>;
-pub type PublishRx = mpsc::Receiver<packets::Publish>;
+pub type PublishTx = mpsc::Sender<Message>;
+pub type PublishRx = mpsc::Receiver<Message>;
 
 type Command = super::command::Command<
-	mpsc::Sender<Publish>,
+	mpsc::Sender<Message>,
 	oneshot::Sender<()>,
 	oneshot::Sender<Vec<(FilterBuf, QoS)>>,
 	oneshot::Sender<()>,
