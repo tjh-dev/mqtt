@@ -1,5 +1,4 @@
 use crate::{QoS, Topic};
-use bytes::Bytes;
 use std::{num::NonZeroU16, ops};
 
 /// Client credentials
