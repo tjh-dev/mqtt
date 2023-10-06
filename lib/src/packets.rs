@@ -1,11 +1,11 @@
 use crate::{
-	bytes_reader::BytesReader,
+	bytes_reader::{BytesReader, Cursor},
 	filter,
 	misc::{self, Credentials, Will},
 	serde, Filter, InvalidQoS, Packet, PacketId, QoS, Topic, TopicBuf,
 };
-use bytes::{Buf, BufMut, Bytes};
-use std::{error, fmt, io, str::Utf8Error, string::FromUtf8Error};
+use bytes::{BufMut, Bytes};
+use std::{error, fmt, str::Utf8Error, string::FromUtf8Error};
 
 /// The only valid value for [`protocol_name`] in [`Connect`] packets.
 ///
@@ -31,26 +31,32 @@ pub struct Frame {
 }
 
 impl Frame {
-	/// Checks if a complete [`Packet`] can be decoded from `src`. If so,
-	/// returns the length of the packet.
-	pub fn check(src: &mut io::Cursor<&[u8]>) -> Result<usize, DeserializeError> {
-		let header = serde::get_u8(src)?;
+	/// Checks whether a complete packet frame can be deserialized from the
+	/// cursor.
+	pub fn check(cursor: &mut Cursor) -> Result<usize, DeserializeError> {
+		let header = cursor.take_u8()?;
 		if header == 0 || header == 0xf0 {
 			return Err(DeserializeError::InvalidHeader);
 		}
 
-		let length = serde::get_var(src)?;
-		let _ = serde::get_slice(src, length)?;
-		Ok(src.position() as _)
+		let length = cursor.take_var()?;
+		cursor.take_slice(length)?;
+
+		Ok(cursor.position())
 	}
 
-	/// Parses a [`Frame`] from `src`.
-	pub fn parse(mut packet: Bytes) -> Result<Self, DeserializeError> {
-		let mut cursor = io::Cursor::new(&packet[..]);
-		let header = serde::get_u8(&mut cursor)?;
-		let _ = serde::get_var(&mut cursor)?;
+	/// Deserializes a complete packet frame from the bytes.
+	///
+	/// `buffer` should contain *exactly* the length of the complete frame.
+	pub fn parse(buffer: Bytes) -> Result<Self, DeserializeError> {
+		let mut reader = BytesReader::new(buffer);
 
-		let payload = packet.split_off(cursor.position() as _);
+		let header = reader.take_u8()?;
+		let length = reader.take_var()?;
+		debug_assert_eq!(length, reader.remaining());
+
+		// Assume the payload is the reset of the buffer.
+		let payload = reader.take_inner();
 		Ok(Self { header, payload })
 	}
 
@@ -179,27 +185,27 @@ mod connect {
 
 	impl<'a> Connect<'a> {
 		pub fn deserialize_from(frame: &'a Frame) -> Result<Self, DeserializeError> {
-			let mut cursor = io::Cursor::new(&frame.payload[..]);
-			let protocol_name = match serde::get_str(&mut cursor)? {
+			let mut cursor = Cursor::from_frame(frame);
+			let protocol_name = match cursor.take_str()? {
 				PROTOCOL_NAME => PROTOCOL_NAME,
 				_ => {
 					return Err(DeserializeError::MalformedPacket("invalid protocol name"));
 				}
 			};
 
-			let protocol_level = serde::get_u8(&mut cursor)?;
-			let flags = serde::get_u8(&mut cursor)?;
-			let keep_alive = serde::get_u16(&mut cursor)?;
-			let client_id = serde::get_str(&mut cursor)?;
+			let protocol_level = cursor.take_u8()?;
+			let flags = cursor.take_u8()?;
+			let keep_alive = cursor.take_u16()?;
+			let client_id = cursor.take_str()?;
 
 			let clean_session = flags & 0x02 == 0x02;
 			let will = if flags & 0x04 == 0x04 {
 				// Deserialize the last-will topic.
-				let topic = Topic::new(serde::get_str(&mut cursor)?)?;
+				let topic = Topic::new(cursor.take_str()?)?;
 
 				// Read the last-will payload length and slice.
-				let len = serde::get_u16(&mut cursor)?;
-				let payload = serde::get_slice(&mut cursor, len as usize)?;
+				let len = cursor.take_u16()?;
+				let payload = cursor.take_slice(len.into())?;
 
 				let qos = ((flags & 0x18) >> 3).try_into()?;
 				let retain = flags & 0x20 == 0x20;
@@ -210,9 +216,9 @@ mod connect {
 			};
 
 			let credentials = if flags & 0x40 == 0x40 {
-				let username = serde::get_str(&mut cursor)?;
+				let username = cursor.take_str()?;
 				let password = if flags & 0x80 == 0x80 {
-					Some(serde::get_str(&mut cursor)?)
+					Some(cursor.take_str()?)
 				} else {
 					None
 				};
@@ -311,19 +317,17 @@ mod connect {
 }
 
 impl ConnAck {
-	/// Parses the payload of a ConnAck packet.
 	pub fn deserialize_from(frame: &Frame) -> Result<Self, DeserializeError> {
-		let payload = &frame.payload[..];
+		let mut cursor = Cursor::from_frame(frame);
 
-		if payload.len() != 2 {
+		if cursor.remaining() != 2 {
 			return Err(DeserializeError::MalformedPacket(
 				"ConnAck packet must have length 2",
 			));
 		}
 
-		let mut cursor = io::Cursor::new(payload);
-		let flags = serde::get_u8(&mut cursor)?;
-		let code = serde::get_u8(&mut cursor)?;
+		let flags = cursor.take_u8()?;
+		let code = cursor.take_u8()?;
 
 		if flags & 0xe0 != 0 {
 			return Err(DeserializeError::MalformedPacket(
@@ -565,15 +569,13 @@ impl fmt::Debug for Publish {
 impl<'a> Subscribe<'a> {
 	/// Parses the payload of a [`Subscribe`] packet.
 	pub fn deserialize_from(frame: &'a Frame) -> Result<Self, DeserializeError> {
-		let payload = &frame.payload[..];
+		let mut cursor = Cursor::from_frame(frame);
 
-		let mut cursor = io::Cursor::new(payload);
-		let id = serde::get_id(&mut cursor)?;
-
+		let id = cursor.take_id()?;
 		let mut filters = Vec::new();
 		while cursor.has_remaining() {
-			let filter = serde::get_str(&mut cursor)?;
-			let qos: QoS = serde::get_u8(&mut cursor)?.try_into()?;
+			let filter = cursor.take_str()?;
+			let qos = cursor.take_u8()?.try_into()?;
 			filters.push((Filter::new(filter)?, qos));
 		}
 
@@ -601,12 +603,12 @@ impl<'a> Subscribe<'a> {
 
 impl SubAck {
 	pub fn deserialize_from(frame: &Frame) -> Result<Self, DeserializeError> {
-		let mut cursor = io::Cursor::new(&frame.payload[..]);
-		let id = serde::get_id(&mut cursor)?;
+		let mut cursor = Cursor::from_frame(frame);
+		let id = cursor.take_id()?;
 
 		let mut result = Vec::new();
 		while cursor.has_remaining() {
-			let return_code = serde::get_u8(&mut cursor)?;
+			let return_code = cursor.take_u8()?;
 			let qos: Result<QoS, SubscribeFailed> = match return_code.try_into() {
 				Ok(qos) => Ok(qos),
 				Err(_) => {
@@ -643,14 +645,15 @@ impl SubAck {
 }
 
 impl<'a> Unsubscribe<'a> {
-	/// Parses the payload of a [`Subscribe`] packet.
+	/// Deserializes an [`Unsubscribe`] packet.
 	pub fn deserialize_from(frame: &'a Frame) -> Result<Self, DeserializeError> {
-		let mut cursor = io::Cursor::new(&frame.payload[..]);
-		let id = serde::get_id(&mut cursor)?;
+		let mut cursor = Cursor::from_frame(frame);
+
+		let id = cursor.take_id()?;
 
 		let mut filters = Vec::new();
 		while cursor.has_remaining() {
-			let filter = serde::get_str(&mut cursor)?;
+			let filter = cursor.take_str()?;
 			filters.push(Filter::new(filter)?);
 		}
 
@@ -778,16 +781,15 @@ macro_rules! id_packet {
 
 		impl $name {
 			pub fn deserialize_from(frame: &Frame) -> Result<Self, DeserializeError> {
-				let payload = &frame.payload[..];
+				let mut cursor = Cursor::from_frame(frame);
 
-				if payload.len() != 2 {
+				if cursor.remaining() != 2 {
 					return Err(DeserializeError::MalformedPacket(
 						"packet must have length 2",
 					));
 				}
 
-				let mut buf = io::Cursor::new(payload);
-				let id = crate::serde::get_id(&mut buf)?;
+				let id = cursor.take_id()?;
 				Ok(Self { id })
 			}
 
@@ -820,9 +822,7 @@ macro_rules! nul_packet {
 
 		impl $name {
 			pub fn deserialize_from(frame: &Frame) -> Result<Self, DeserializeError> {
-				let payload = &frame.payload[..];
-
-				if payload.len() != 0 {
+				if frame.payload.len() != 0 {
 					return Err(DeserializeError::MalformedPacket(
 						"packet must have length 0",
 					));

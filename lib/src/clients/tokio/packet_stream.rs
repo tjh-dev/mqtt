@@ -1,6 +1,8 @@
-use crate::packets::{DeserializeError, Frame};
+use crate::{
+	bytes_reader::Cursor,
+	packets::{DeserializeError, Frame},
+};
 use bytes::{Buf, BytesMut};
-use std::io::Cursor;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 #[derive(Debug)]
@@ -21,8 +23,8 @@ impl<T> PacketStream<T> {
 	pub fn parse_frame(&mut self) -> Result<Option<Frame>, DeserializeError> {
 		use DeserializeError::Incomplete;
 
-		let mut buf = Cursor::new(&self.buffer[..]);
-		match Frame::check(&mut buf) {
+		let mut cursor = Cursor::new(&self.buffer[..]);
+		match Frame::check(&mut cursor) {
 			Ok(extent) => {
 				let bytes = self.buffer.split_to(extent).freeze();
 				Ok(Some(Frame::parse(bytes)?))
@@ -37,8 +39,8 @@ impl<T: AsyncRead + Unpin> PacketStream<T> {
 	pub async fn read_frame(&mut self) -> crate::Result<Option<Frame>> {
 		loop {
 			// Attempt to parse a packet from the buffered data.
-			if let Some(packet) = self.parse_frame()? {
-				return Ok(Some(packet));
+			if let Some(frame) = self.parse_frame()? {
+				return Ok(Some(frame));
 			}
 
 			// There is not enough buffered data to read a packet. Attempt

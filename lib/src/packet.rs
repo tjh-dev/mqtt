@@ -1,4 +1,5 @@
 use crate::{
+	bytes_reader::Cursor,
 	packets::{
 		ConnAck, Connect, DeserializeError, Disconnect, Frame, PingReq, PingResp, PubAck, PubComp,
 		PubRec, PubRel, Publish, SubAck, Subscribe, UnsubAck, Unsubscribe,
@@ -6,7 +7,6 @@ use crate::{
 	serde,
 };
 use bytes::BufMut;
-use std::io;
 
 #[derive(Debug)]
 pub enum Packet<'a> {
@@ -62,15 +62,15 @@ const DISCONNECT: u8 = 0xe0;
 impl<'a> Packet<'a> {
 	/// Checks if a complete [`Packet`] can be decoded from `src`. If so,
 	/// returns the length of the packet.
-	pub fn check(src: &mut io::Cursor<&[u8]>) -> Result<u64, DeserializeError> {
-		let header = serde::get_u8(src)?;
+	pub fn check(cursor: &mut Cursor) -> Result<usize, DeserializeError> {
+		let header = cursor.take_u8()?;
 		if header == 0 || header == 0xf0 {
 			return Err(DeserializeError::InvalidHeader);
 		}
 
-		let length = serde::get_var(src)?;
-		let _ = serde::get_slice(src, length)?;
-		Ok(src.position())
+		let length = cursor.take_var()?;
+		let _ = cursor.take_slice(length)?;
+		Ok(cursor.position())
 	}
 
 	/// Parses a [`Packet`] from src.

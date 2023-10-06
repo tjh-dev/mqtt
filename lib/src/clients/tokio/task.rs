@@ -96,7 +96,15 @@ pub async fn connected_task(
 				};
 
 				tracing::debug!(packet = ?frame, "read from stream");
-				let packet: Packet = Packet::parse(&frame)?;
+				let packet: Packet = match Packet::parse(&frame) {
+					Ok(packet) => packet,
+					Err(error) => {
+						tracing::error!("{error:?}");
+						return Err(error.into())
+					}
+				};
+
+				tracing::debug!(?packet);
 				if process_packet(state, packet).await.is_err() {
 					return Ok(Continue(()));
 				}
