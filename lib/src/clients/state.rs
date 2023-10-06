@@ -32,7 +32,7 @@ pub struct ClientState<PubTx, PubResp, SubResp, UnSubResp> {
 	outgoing: BytesMut,
 
 	/// Incoming Publish packets.
-	pub incoming: HashMap<PacketId, Message>,
+	incoming: HashMap<PacketId, Message>,
 
 	publish_state: HashMap<PacketId, PublishState<PubResp>>,
 	subscribe_state: HashMap<PacketId, SubscribeState<PubTx, SubResp>>,
@@ -49,7 +49,7 @@ pub struct ClientState<PubTx, PubResp, SubResp, UnSubResp> {
 	pub keep_alive: Duration,
 
 	// This is Some if there is a active PingReq request.
-	pub pingreq_state: Option<Instant>,
+	pingreq_state: Option<Instant>,
 }
 
 #[derive(Debug)]
@@ -389,6 +389,10 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 		Ok(message)
 	}
 
+	pub fn buffer_message(&mut self, id: PacketId, message: Message) -> Option<Message> {
+		self.incoming.insert(id, message)
+	}
+
 	/// Finds a channel to publish messages for `topic` to.
 	#[inline]
 	pub fn find_publish_channel(&self, topic: &Topic) -> Option<&PubTx> {
@@ -410,6 +414,17 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 		}
 
 		None
+	}
+
+	pub fn pingresp(&mut self) -> Result<Duration, StateError> {
+		let Some(req) = self.pingreq_state.take() else {
+			return Err(StateError::Unsolicited(PacketType::PingResp));
+		};
+		Ok(req.elapsed())
+	}
+
+	pub fn update_deadline(&mut self) {
+		self.pingreq_state.replace(Instant::now());
 	}
 }
 

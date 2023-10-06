@@ -30,6 +30,7 @@ async fn main() -> mqtt::Result<()> {
 
 	let config = ClientConfiguration {
 		client_id: build_client_id(!arguments.disable_clean_session),
+		keep_alive: arguments.keep_alive,
 		..Default::default()
 	};
 

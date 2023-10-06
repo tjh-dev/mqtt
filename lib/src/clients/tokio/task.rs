@@ -109,9 +109,9 @@ pub async fn connected_task(
 				}
 
 				// If we are about to send a packet to the Server, we don't need to send a PingReq.
-				if state.has_outgoing() {
-					state.pingreq_state = Some(Instant::now());
+				if !state.has_outgoing() {
 					state.queue_packet(&packets::PingReq);
+					state.update_deadline();
 				}
 			}
 		}
@@ -194,7 +194,9 @@ async fn process_packet<'a>(
 					unimplemented!("duplicate Publish packets are not yet handled");
 				}
 
-				state.incoming.insert(
+				// Buffer the incoming message. It will be released to the client
+				// when we receive a PubRel packet.
+				state.buffer_message(
 					id,
 					Message {
 						topic: topic.to_topic_buf(),
@@ -228,7 +230,7 @@ async fn process_packet<'a>(
 			};
 
 			if let Err(publish) = channel.send(message).await {
-				state.incoming.insert(id, publish.0);
+				state.buffer_message(id, publish.0);
 				return Err(StateError::HardDeliveryFailure);
 			};
 
@@ -254,11 +256,8 @@ async fn process_packet<'a>(
 			Ok(())
 		}
 		Packet::PingResp => {
-			let Some(req) = state.pingreq_state.take() else {
-				tracing::error!("unsolicited PingResp");
-				return Err(StateError::Unsolicited(PacketType::PingResp));
-			};
-			tracing::info!(elapsed = ?req.elapsed(), "PingResp recevied");
+			let elapsed = state.pingresp()?;
+			tracing::info!(?elapsed, "PingResp recevied");
 			Ok(())
 		}
 		Packet::Connect(_) => Err(StateError::InvalidPacket(PacketType::Connect)),
