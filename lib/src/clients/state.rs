@@ -1,3 +1,4 @@
+use super::Message;
 use crate::{
 	misc::WrappingNonZeroU16,
 	packets::{self, Publish, SerializePacket, SubAck, Subscribe, UnsubAck, Unsubscribe},
@@ -10,8 +11,6 @@ use std::{
 	num::NonZeroU16,
 	time::{Duration, Instant},
 };
-
-use super::tokio::Message;
 
 #[derive(Debug)]
 pub enum StateError {
@@ -389,6 +388,7 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 	/// Finds a channel to publish messages for `topic` to.
 	#[inline]
 	pub fn find_publish_channel(&self, topic: &Topic) -> Option<&PubTx> {
+		#[cfg(feature = "tokio-client")]
 		let start = Instant::now();
 
 		for Subscription {
@@ -396,9 +396,11 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 		} in &self.active_subscriptions
 		{
 			if filter.matches_topic(topic) {
-				let time = start.elapsed();
 				#[cfg(feature = "tokio-client")]
-				tracing::info!(topic = ?topic, filter = ?filter, time = ?time, "found channel for");
+				{
+					let time = start.elapsed();
+					tracing::info!(topic = ?topic, filter = ?filter, time = ?time, "found channel for");
+				}
 				return Some(channel);
 			}
 		}

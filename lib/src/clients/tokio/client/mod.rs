@@ -11,7 +11,7 @@ use crate::{
 use bytes::Bytes;
 use core::fmt;
 use std::convert;
-pub use subscription::{Message, Subscription};
+pub use subscription::Subscription;
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
