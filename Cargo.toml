@@ -1,8 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
-  "tjh-mqtt",
-  "tjh-mqtt-cli"
+  "bin",
+  "lib"
 ]
 
 [profile.release]
