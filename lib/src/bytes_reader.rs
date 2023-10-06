@@ -27,6 +27,7 @@ impl BytesReader {
 		self.bytes
 	}
 
+	#[allow(unused)]
 	pub fn take_u8(&mut self) -> Result<u8> {
 		self.require(1)?;
 		Ok(self.bytes.get_u8())
