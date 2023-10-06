@@ -1,4 +1,4 @@
-use super::{mqtt_stream::MqttStream, Command, CommandRx, HoldOff, StateError};
+use super::{mqtt_stream::MqttStream, Command, CommandRx, StateError};
 use crate::{
 	clients::{
 		command::{PublishCommand, SubscribeCommand, UnsubscribeCommand},
@@ -23,38 +23,34 @@ type ClientState = super::ClientState<
 	oneshot::Sender<()>,
 >;
 
-pub async fn preconnect_task(
+pub async fn wait_for_connack(
 	state: &mut ClientState,
-	command_channel: &mut CommandRx,
 	connection: &mut MqttStream,
-	reconnect_delay: &mut HoldOff,
-) -> crate::Result<ControlFlow<(), ()>> {
+) -> crate::Result<packets::ConnAck> {
 	use packets::ConnAck;
 
-	// Send a Connect packet to the Server. `connect` is a `Bytes`, so this clone
-	// should be cheap.
-	state.reconnect();
-	connection.write(state.buffer().unwrap()).await?;
+	// Send a Connect packet to the Server.
+	state.connect();
+	connection.write(state.take_buffer().unwrap()).await?;
 
 	let sleep = time::sleep(state.keep_alive);
 	tokio::pin!(sleep);
 
-	// Wait for ConnAck
+	// Wait for a Frame from the Server.
 	let frame = tokio::select! {
 		Ok(Some(frame)) = connection.read_frame() => frame,
-		_ = &mut sleep => return Ok(Continue(())),
+		_ = &mut sleep => return Err("timeout".into()),
 	};
 
 	let connack = ConnAck::from_frame(&frame)?;
-	let session_present = connack.session_present;
 
 	// TODO: Check return code.
 
-	reconnect_delay.reset();
-	connected_task(state, command_channel, connection, session_present).await
+	Ok(connack)
+	// connected_task(state, command_channel, connection, session_present).await
 }
 
-async fn connected_task(
+pub async fn connected_task(
 	state: &mut ClientState,
 	command_channel: &mut CommandRx,
 	connection: &mut MqttStream,
@@ -115,21 +111,16 @@ async fn connected_task(
 				// If we are about to send a packet to the Server, we don't need to send a PingReq.
 				if state.outgoing.is_empty() {
 					state.pingreq_state = Some(Instant::now());
-					state.enqueue_packet(&packets::PingReq);
+					state.queue_packet(&packets::PingReq);
 				}
 			}
 		}
 
-		let update_keep_alive = if !state.outgoing.is_empty() {
-			let buffer = state.outgoing.split().freeze();
+		// Write any buffered outgoing packets to the stream.
+		if let Some(buffer) = state.take_buffer() {
 			connection.write(buffer).await?;
-			true
-		} else {
-			false
-		};
 
-		if update_keep_alive {
-			// We've just sent a packet, update the keep alive.
+			// We've just sent a packet, update the keep alive interval.
 			keep_alive.reset_at((Instant::now() + state.keep_alive).into());
 		}
 	}
@@ -189,7 +180,7 @@ async fn process_packet<'a>(
 					.await
 					.map_err(|p| StateError::DeliveryFailure(p.0))?;
 
-				state.enqueue_packet(&packets::PubAck { id });
+				state.queue_packet(&packets::PubAck { id });
 				Ok(())
 			}
 			Publish::ExactlyOnce {
@@ -212,7 +203,7 @@ async fn process_packet<'a>(
 					},
 				);
 
-				state.enqueue_packet(&packets::PubRec { id });
+				state.queue_packet(&packets::PubRec { id });
 				Ok(())
 			}
 		},
@@ -243,7 +234,7 @@ async fn process_packet<'a>(
 
 			// We've successfully passed on the Publish message. Queue up a PubComp
 			// packet
-			state.enqueue_packet(&packets::PubComp { id });
+			state.queue_packet(&packets::PubComp { id });
 
 			Ok(())
 		}
@@ -270,12 +261,12 @@ async fn process_packet<'a>(
 			tracing::info!(elapsed = ?req.elapsed(), "PingResp recevied");
 			Ok(())
 		}
-		Packet::Connect(_)
-		| Packet::ConnAck { .. }
-		| Packet::Subscribe { .. }
-		| Packet::Unsubscribe { .. }
-		| Packet::PingReq
-		| Packet::Disconnect => Err(StateError::InvalidPacket),
+		Packet::Connect(_) => Err(StateError::InvalidPacket(PacketType::Connect)),
+		Packet::ConnAck { .. } => Err(StateError::InvalidPacket(PacketType::ConnAck)),
+		Packet::Subscribe { .. } => Err(StateError::InvalidPacket(PacketType::Subscribe)),
+		Packet::Unsubscribe { .. } => Err(StateError::InvalidPacket(PacketType::Unsubscribe)),
+		Packet::PingReq => Err(StateError::InvalidPacket(PacketType::PingReq)),
+		Packet::Disconnect => Err(StateError::InvalidPacket(PacketType::Disconnect)),
 	}
 }
 
@@ -283,7 +274,7 @@ async fn process_command(state: &mut ClientState, command: Command) -> Result<bo
 	match command {
 		Command::Shutdown => {
 			// TODO: This shutdown process could be better.
-			state.enqueue_packet(&packets::Disconnect);
+			state.queue_packet(&packets::Disconnect);
 			return Ok(true);
 		}
 		Command::Publish(PublishCommand {

@@ -15,9 +15,10 @@ use super::tokio::Message;
 
 #[derive(Debug)]
 pub enum StateError {
+	/// Received a packet that we were not expecting.
 	Unsolicited(PacketType),
 	/// The Client received a packet that the Server should not send.
-	InvalidPacket,
+	InvalidPacket(PacketType),
 	ProtocolError(&'static str),
 	DeliveryFailure(Message),
 	HardDeliveryFailure,
@@ -114,27 +115,38 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 		}
 	}
 
-	pub fn enqueue_packet(&mut self, packet: &(impl SerializePacket + fmt::Debug)) {
+	/// Serializes `packet` to the internal packet buffer.
+	pub fn queue_packet(&mut self, packet: &(impl SerializePacket + fmt::Debug)) {
 		#[cfg(feature = "tokio-client")]
-		tracing::trace!(?packet, "enqueueing");
+		tracing::trace!(?packet, "queueing packet");
 
 		packet
 			.serialize_to_bytes(&mut self.outgoing)
-			.expect("serializing to BytesMut should not failed");
+			.expect("serializing to BytesMut should be infallible");
 	}
 
-	pub fn buffer(&mut self) -> Option<Bytes> {
+	/// Splits the outgoing packet buffer, returning a [`Bytes`] containing
+	/// serialized packets to be sent to the Server, and clearing the internal
+	/// buffer.
+	///
+	/// Returns `None` if the internal buffer is empty.
+	pub fn take_buffer(&mut self) -> Option<Bytes> {
 		(!self.outgoing.is_empty()).then(|| self.outgoing.split().freeze())
 	}
 
-	pub fn reconnect(&mut self) {
+	/// Initiates a new connection state.
+	///
+	/// This is currently incomplete.
+	pub fn connect(&mut self) {
+		// For now, just queue the Connect packet.
 		self.outgoing.extend_from_slice(&self.connect[..]);
 	}
 
+	/// Handles an unsubscribe command.
 	pub fn unsubscribe(&mut self, filters: Vec<FilterBuf>, response: UnSubResp) {
 		// Generate and serialize an UnSub packet.
 		let id = self.generate_unsubscribe_id();
-		self.enqueue_packet(&Unsubscribe {
+		self.queue_packet(&Unsubscribe {
 			id,
 			filters: filters.iter().map(|filter| filter.as_ref()).collect(),
 		});
@@ -149,6 +161,7 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 		);
 	}
 
+	/// Handles an incoming UnSubAck packet.
 	pub fn unsuback(&mut self, unsuback: UnsubAck) -> Result<UnSubResp, StateError> {
 		let UnsubAck { id } = unsuback;
 
@@ -167,6 +180,10 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 		Ok(response)
 	}
 
+	/// Generates a new unused [`PacketId`] to use for outgoing [`Publish`]
+	/// packets.
+	///
+	/// NOTE: This will deadlock if there are 65,534 inflight Publish requests.
 	fn generate_publish_id(&mut self) -> PacketId {
 		loop {
 			self.publish_packet_id += 1;
@@ -180,6 +197,11 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 		self.publish_packet_id.get()
 	}
 
+	/// Generates a new unused [`PacketId`] to use for outgoing [`Subscribe`]
+	/// packets.
+	///
+	/// NOTE: This will deadlock if there are 65,534 inflight Subscribe
+	/// requests.
 	fn generate_subscribe_id(&mut self) -> PacketId {
 		loop {
 			self.subscribe_packet_id += 1;
@@ -193,6 +215,11 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 		self.subscribe_packet_id.get()
 	}
 
+	/// Generates a new unused [`PacketId`] to use for outgoing [`Unsubscribe`]
+	/// packets.
+	///
+	/// NOTE: This will deadlock if there are 65,534 inflight Unsubscribe
+	/// requests.
 	fn generate_unsubscribe_id(&mut self) -> PacketId {
 		loop {
 			self.unsubscribe_packet_id += 1;
@@ -211,6 +238,11 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 		!self.active_subscriptions.is_empty()
 	}
 
+	/// Generates a [`Subscribe`] packet to re-subscribe all active
+	/// subscriptions.
+	///
+	/// Use this to resume the state's active subscriptions when re-connecting
+	/// to the Server.
 	pub fn generate_resubscribe(&mut self, response: SubResp) -> bool {
 		if !self.active_subscriptions.is_empty() {
 			let filters: Vec<_> = self.active_subscriptions.drain(..).collect();
@@ -224,7 +256,7 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 					.collect(),
 			};
 
-			self.enqueue_packet(&packet);
+			self.queue_packet(&packet);
 
 			self.subscribe_state.insert(
 				id,
@@ -270,7 +302,7 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 	) -> Option<PubResp> {
 		match qos {
 			QoS::AtMostOnce => {
-				self.enqueue_packet(&Publish::AtMostOnce {
+				self.queue_packet(&Publish::AtMostOnce {
 					retain,
 					topic,
 					payload,
@@ -284,7 +316,7 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 					.insert(id, PublishState::Ack { response });
 
 				// Generate the first attempt.
-				self.enqueue_packet(&Publish::AtLeastOnce {
+				self.queue_packet(&Publish::AtLeastOnce {
 					id,
 					retain,
 					duplicate: false,
@@ -300,7 +332,7 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 					.insert(id, PublishState::Rec { response });
 
 				// Generate the first attempt.
-				self.enqueue_packet(&Publish::ExactlyOnce {
+				self.queue_packet(&Publish::ExactlyOnce {
 					id,
 					retain,
 					duplicate: false,
@@ -332,7 +364,7 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 			.insert(id, PublishState::Comp { response });
 
 		// Queue an incoming PubRel packet.
-		self.enqueue_packet(&packets::PubRel { id });
+		self.queue_packet(&packets::PubRel { id });
 		Ok(())
 	}
 
@@ -345,6 +377,7 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 		Ok(response)
 	}
 
+	/// Handles an incoming PubRel packet.
 	pub fn pubrel(&mut self, id: PacketId) -> Result<Message, StateError> {
 		let Some(message) = self.incoming.remove(&id) else {
 			return Err(StateError::Unsolicited(PacketType::PubRel));
@@ -380,7 +413,7 @@ impl<PubTx: Clone + fmt::Debug, PubResp, SubResp, UnSubResp>
 	pub fn subscribe(&mut self, filters: Vec<(FilterBuf, QoS)>, channel: PubTx, response: SubResp) {
 		// Generate an ID for the subscribe packet.
 		let id = self.generate_subscribe_id();
-		self.enqueue_packet(&Subscribe {
+		self.queue_packet(&Subscribe {
 			id,
 			filters: filters
 				.iter()

@@ -123,9 +123,19 @@ pub fn tcp_client<'o>(
 				false => MqttStream::new(Box::new(stream), 8 * 1024),
 			};
 
-			if let Ok(Break(_)) =
-				task::preconnect_task(&mut state, &mut rx, &mut connection, &mut reconnect_delay)
-					.await
+			let Ok(connack) = task::wait_for_connack(&mut state, &mut connection).await else {
+				continue;
+			};
+
+			reconnect_delay.reset();
+
+			if let Ok(Break(_)) = task::connected_task(
+				&mut state,
+				&mut rx,
+				&mut connection,
+				connack.session_present,
+			)
+			.await
 			{
 				tracing::info!("break from client_task");
 				break Ok(());
