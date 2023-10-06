@@ -7,14 +7,18 @@ use crate::{
 use bytes::{Buf, BufMut, Bytes};
 use std::{error, fmt, io, str::Utf8Error, string::FromUtf8Error};
 
-const DEFAULT_PROTOCOL_NAME: &str = "MQTT";
+/// The only valid value for [`protocol_name`] in [`Connect`] packets.
+///
+/// [`protocol_name`]: Connect::protocol_name
+pub const PROTOCOL_NAME: &str = "MQTT";
 
 pub trait SerializePacket {
-	fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), serde::WriteError>;
+	/// Serializes the packet into the provided [`BufMut`] implementation.
+	fn serialize_into(&self, dst: &mut impl BufMut) -> Result<(), serde::SerializeError>;
 }
 
 pub trait DeserializePacket<'a>: Sized {
-	fn from_frame(frame: &'a Frame) -> Result<Self, ParseError>;
+	fn deserialize_from(frame: &'a Frame) -> Result<Self, DeserializeError>;
 }
 
 #[derive(Debug)]
@@ -29,10 +33,10 @@ pub struct Frame {
 impl Frame {
 	/// Checks if a complete [`Packet`] can be decoded from `src`. If so,
 	/// returns the length of the packet.
-	pub fn check(src: &mut io::Cursor<&[u8]>) -> Result<usize, ParseError> {
+	pub fn check(src: &mut io::Cursor<&[u8]>) -> Result<usize, DeserializeError> {
 		let header = serde::get_u8(src)?;
 		if header == 0 || header == 0xf0 {
-			return Err(ParseError::InvalidHeader);
+			return Err(DeserializeError::InvalidHeader);
 		}
 
 		let length = serde::get_var(src)?;
@@ -41,13 +45,20 @@ impl Frame {
 	}
 
 	/// Parses a [`Frame`] from `src`.
-	pub fn parse(mut packet: Bytes) -> Result<Self, ParseError> {
+	pub fn parse(mut packet: Bytes) -> Result<Self, DeserializeError> {
 		let mut cursor = io::Cursor::new(&packet[..]);
 		let header = serde::get_u8(&mut cursor)?;
 		let _ = serde::get_var(&mut cursor)?;
 
 		let payload = packet.split_off(cursor.position() as _);
 		Ok(Self { header, payload })
+	}
+
+	pub fn deserialize_packet<'a, T>(&'a self) -> Result<T, DeserializeError>
+	where
+		T: DeserializePacket<'a>,
+	{
+		T::deserialize_from(self)
 	}
 }
 
@@ -155,7 +166,7 @@ mod connect {
 	impl<'a> Default for Connect<'a> {
 		fn default() -> Self {
 			Self {
-				protocol_name: DEFAULT_PROTOCOL_NAME,
+				protocol_name: PROTOCOL_NAME,
 				protocol_level: 4,
 				client_id: "",
 				keep_alive: 0,
@@ -167,12 +178,12 @@ mod connect {
 	}
 
 	impl<'a> Connect<'a> {
-		pub fn parse(payload: &'a [u8]) -> Result<Self, ParseError> {
-			let mut cursor = io::Cursor::new(payload);
+		pub fn deserialize_from(frame: &'a Frame) -> Result<Self, DeserializeError> {
+			let mut cursor = io::Cursor::new(&frame.payload[..]);
 			let protocol_name = match serde::get_str(&mut cursor)? {
-				DEFAULT_PROTOCOL_NAME => DEFAULT_PROTOCOL_NAME,
+				PROTOCOL_NAME => PROTOCOL_NAME,
 				_ => {
-					return Err(ParseError::MalformedPacket("invalid protocol name"));
+					return Err(DeserializeError::MalformedPacket("invalid protocol name"));
 				}
 			};
 
@@ -221,7 +232,7 @@ mod connect {
 			})
 		}
 
-		pub fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), serde::WriteError> {
+		pub fn serialize_into(&self, dst: &mut impl BufMut) -> Result<(), serde::SerializeError> {
 			// Write the packet type and length.
 			serde::put_u8(dst, 0x10)?;
 			serde::put_var(dst, self.payload_len())?;
@@ -256,9 +267,7 @@ mod connect {
 
 		#[inline(always)]
 		fn payload_len(&self) -> usize {
-			let mut len = 2 + self.protocol_name.len()
-      + 4 // protocol level, flags, an keep alive
-      + (2 + self.client_id.len());
+			let mut len = 2 + self.protocol_name.len() + 4 + (2 + self.client_id.len());
 
 			if let Some(will) = &self.will {
 				len += 2 + will.topic.len() + 2 + will.payload.len();
@@ -303,9 +312,11 @@ mod connect {
 
 impl ConnAck {
 	/// Parses the payload of a ConnAck packet.
-	pub fn parse(payload: &[u8]) -> Result<Self, ParseError> {
+	pub fn deserialize_from(frame: &Frame) -> Result<Self, DeserializeError> {
+		let payload = &frame.payload[..];
+
 		if payload.len() != 2 {
-			return Err(ParseError::MalformedPacket(
+			return Err(DeserializeError::MalformedPacket(
 				"ConnAck packet must have length 2",
 			));
 		}
@@ -315,7 +326,7 @@ impl ConnAck {
 		let code = serde::get_u8(&mut cursor)?;
 
 		if flags & 0xe0 != 0 {
-			return Err(ParseError::MalformedPacket(
+			return Err(DeserializeError::MalformedPacket(
 				"upper 7 bits in ConnAck flags must be zero",
 			));
 		}
@@ -328,7 +339,7 @@ impl ConnAck {
 		})
 	}
 
-	pub fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), serde::WriteError> {
+	pub fn serialize_into(&self, dst: &mut impl BufMut) -> Result<(), serde::SerializeError> {
 		let Self {
 			session_present,
 			code,
@@ -347,10 +358,12 @@ const PUBLISH_HEADER_DUPLICATE_FLAG: u8 = 0x08;
 const PUBLISH_HEADER_QOS_MASK: u8 = 0x06;
 
 impl Publish {
-	pub fn parse(payload: Bytes, flags: u8) -> Result<Self, ParseError> {
+	// pub fn parse(payload: Bytes, flags: u8) -> Result<Self, DeserializeError> {
+	pub fn deserialize_from(frame: &Frame) -> Result<Self, DeserializeError> {
 		// let mut cursor = io::Cursor::new(payload);
-		let mut reader = BytesReader::new(payload);
+		let mut reader = BytesReader::new(frame.payload.clone());
 		// Extract properties from the header flags.
+		let flags = frame.header & 0x0f;
 		let retain = flags & PUBLISH_HEADER_RETAIN_FLAG == PUBLISH_HEADER_RETAIN_FLAG;
 		let duplicate = flags & PUBLISH_HEADER_DUPLICATE_FLAG == PUBLISH_HEADER_DUPLICATE_FLAG;
 		let qos: QoS = ((flags & PUBLISH_HEADER_QOS_MASK) >> 1).try_into()?;
@@ -362,7 +375,7 @@ impl Publish {
 		match qos {
 			QoS::AtMostOnce => {
 				if duplicate {
-					return Err(ParseError::MalformedPacket(
+					return Err(DeserializeError::MalformedPacket(
 						"duplicate flag must be 0 for Publish packets with QoS of AtMostOnce",
 					));
 				}
@@ -411,7 +424,7 @@ impl Publish {
 		}
 	}
 
-	pub fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), serde::WriteError> {
+	pub fn serialize_into(&self, dst: &mut impl BufMut) -> Result<(), serde::SerializeError> {
 		match self {
 			Self::AtMostOnce {
 				retain,
@@ -551,7 +564,9 @@ impl fmt::Debug for Publish {
 
 impl<'a> Subscribe<'a> {
 	/// Parses the payload of a [`Subscribe`] packet.
-	pub fn parse(payload: &'a [u8]) -> Result<Self, ParseError> {
+	pub fn deserialize_from(frame: &'a Frame) -> Result<Self, DeserializeError> {
+		let payload = &frame.payload[..];
+
 		let mut cursor = io::Cursor::new(payload);
 		let id = serde::get_id(&mut cursor)?;
 
@@ -565,7 +580,7 @@ impl<'a> Subscribe<'a> {
 		Ok(Self { id, filters })
 	}
 
-	pub fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), serde::WriteError> {
+	pub fn serialize_into(&self, dst: &mut impl BufMut) -> Result<(), serde::SerializeError> {
 		let Self { id, filters } = self;
 		serde::put_u8(dst, 0x82)?;
 
@@ -585,8 +600,8 @@ impl<'a> Subscribe<'a> {
 }
 
 impl SubAck {
-	pub fn parse(payload: &[u8]) -> Result<Self, ParseError> {
-		let mut cursor = io::Cursor::new(payload);
+	pub fn deserialize_from(frame: &Frame) -> Result<Self, DeserializeError> {
+		let mut cursor = io::Cursor::new(&frame.payload[..]);
 		let id = serde::get_id(&mut cursor)?;
 
 		let mut result = Vec::new();
@@ -598,7 +613,9 @@ impl SubAck {
 					if return_code == 0x80 {
 						Err(SubscribeFailed)
 					} else {
-						return Err(ParseError::MalformedPacket("invalid return code in SubAck"));
+						return Err(DeserializeError::MalformedPacket(
+							"invalid return code in SubAck",
+						));
 					}
 				}
 			};
@@ -609,7 +626,7 @@ impl SubAck {
 		Ok(Self { id, result })
 	}
 
-	pub fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), serde::WriteError> {
+	pub fn serialize_into(&self, dst: &mut impl BufMut) -> Result<(), serde::SerializeError> {
 		let Self { id, result } = self;
 		serde::put_u8(dst, 0x90)?;
 
@@ -627,8 +644,8 @@ impl SubAck {
 
 impl<'a> Unsubscribe<'a> {
 	/// Parses the payload of a [`Subscribe`] packet.
-	pub fn parse(payload: &'a [u8]) -> Result<Self, ParseError> {
-		let mut cursor = io::Cursor::new(payload);
+	pub fn deserialize_from(frame: &'a Frame) -> Result<Self, DeserializeError> {
+		let mut cursor = io::Cursor::new(&frame.payload[..]);
 		let id = serde::get_id(&mut cursor)?;
 
 		let mut filters = Vec::new();
@@ -640,7 +657,7 @@ impl<'a> Unsubscribe<'a> {
 		Ok(Self { id, filters })
 	}
 
-	pub fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), serde::WriteError> {
+	pub fn serialize_into(&self, dst: &mut impl BufMut) -> Result<(), serde::SerializeError> {
 		let Self { id, filters } = self;
 		serde::put_u8(dst, 0xa2)?;
 
@@ -659,7 +676,7 @@ impl<'a> Unsubscribe<'a> {
 }
 
 #[derive(Debug)]
-pub enum ParseError {
+pub enum DeserializeError {
 	Incomplete,
 	InvalidQoS,
 	InvalidFilter(filter::InvalidFilter),
@@ -672,79 +689,85 @@ pub enum ParseError {
 	FromUtf8Error(FromUtf8Error),
 }
 
-impl From<Utf8Error> for ParseError {
+impl From<Utf8Error> for DeserializeError {
 	#[inline]
 	fn from(value: Utf8Error) -> Self {
 		Self::Utf8Error(value)
 	}
 }
 
-impl From<InvalidQoS> for ParseError {
+impl From<InvalidQoS> for DeserializeError {
 	#[inline]
 	fn from(_: InvalidQoS) -> Self {
 		Self::InvalidQoS
 	}
 }
 
-impl From<crate::InvalidTopic> for ParseError {
+impl From<crate::InvalidTopic> for DeserializeError {
 	fn from(value: crate::InvalidTopic) -> Self {
 		Self::InvalidTopic(value)
 	}
 }
 
-impl From<filter::InvalidFilter> for ParseError {
+impl From<filter::InvalidFilter> for DeserializeError {
 	#[inline]
 	fn from(value: filter::InvalidFilter) -> Self {
 		Self::InvalidFilter(value)
 	}
 }
 
-impl fmt::Display for ParseError {
+impl fmt::Display for DeserializeError {
 	#[inline]
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		write!(f, "{self:?}")
 	}
 }
 
-impl error::Error for ParseError {}
+impl error::Error for DeserializeError {}
 
 macro_rules! impl_serialize {
 	($name:tt) => {
 		impl SerializePacket for $name {
-			fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), serde::WriteError> {
-				Self::serialize_to_bytes(&self, dst)
+			fn serialize_into(&self, dst: &mut impl BufMut) -> Result<(), serde::SerializeError> {
+				Self::serialize_into(&self, dst)
+			}
+		}
+
+		impl<'a> DeserializePacket<'a> for $name {
+			fn deserialize_from(frame: &'a Frame) -> Result<Self, DeserializeError> {
+				Self::deserialize_from(frame)
 			}
 		}
 	};
-	($name:tt,$lt:tt) => {
-		impl<'lt> SerializePacket for $name<'lt> {
-			fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), serde::WriteError> {
-				Self::serialize_to_bytes(&self, dst)
+	($name:tt,$a:tt) => {
+		impl<$a> SerializePacket for $name<$a> {
+			fn serialize_into(&self, dst: &mut impl BufMut) -> Result<(), serde::SerializeError> {
+				Self::serialize_into(&self, dst)
+			}
+		}
+
+		impl<$a> DeserializePacket<$a> for $name<$a> {
+			fn deserialize_from(frame: &$a Frame) -> Result<Self, DeserializeError> {
+				Self::deserialize_from(frame)
 			}
 		}
 	};
 }
 
-impl_serialize!(Connect, a);
+impl_serialize!(Connect, 'a);
 impl_serialize!(ConnAck);
 impl_serialize!(Publish);
 impl_serialize!(PubAck);
 impl_serialize!(PubRec);
 impl_serialize!(PubRel);
 impl_serialize!(PubComp);
-impl_serialize!(Subscribe, a);
+impl_serialize!(Subscribe, 'a);
 impl_serialize!(SubAck);
-impl_serialize!(Unsubscribe, a);
+impl_serialize!(Unsubscribe, 'a);
 impl_serialize!(UnsubAck);
 impl_serialize!(PingReq);
 impl_serialize!(PingResp);
 impl_serialize!(Disconnect);
-
-impl<'a> DeserializePacket<'a> for ConnAck {
-	fn from_frame(frame: &'a Frame) -> Result<Self, ParseError> {
-		Self::parse(&frame.payload[..])
-	}
-}
 
 macro_rules! id_packet {
 	($name:tt,$variant:expr,$header:literal) => {
@@ -754,9 +777,13 @@ macro_rules! id_packet {
 		}
 
 		impl $name {
-			pub fn parse(payload: &[u8]) -> Result<Self, ParseError> {
+			pub fn deserialize_from(frame: &Frame) -> Result<Self, DeserializeError> {
+				let payload = &frame.payload[..];
+
 				if payload.len() != 2 {
-					return Err(ParseError::MalformedPacket("packet must have length 2"));
+					return Err(DeserializeError::MalformedPacket(
+						"packet must have length 2",
+					));
 				}
 
 				let mut buf = io::Cursor::new(payload);
@@ -764,10 +791,10 @@ macro_rules! id_packet {
 				Ok(Self { id })
 			}
 
-			pub fn serialize_to_bytes(
+			pub fn serialize_into(
 				&self,
 				dst: &mut impl BufMut,
-			) -> Result<(), crate::serde::WriteError> {
+			) -> Result<(), serde::SerializeError> {
 				let Self { id } = self;
 				crate::serde::put_u8(dst, $header)?;
 				crate::serde::put_var(dst, 2)?;
@@ -792,19 +819,23 @@ macro_rules! nul_packet {
 		pub struct $name;
 
 		impl $name {
-			pub fn parse(payload: &[u8]) -> Result<Self, ParseError> {
+			pub fn deserialize_from(frame: &Frame) -> Result<Self, DeserializeError> {
+				let payload = &frame.payload[..];
+
 				if payload.len() != 0 {
-					return Err(ParseError::MalformedPacket("packet must have length 0"));
+					return Err(DeserializeError::MalformedPacket(
+						"packet must have length 0",
+					));
 				}
 				Ok(Self)
 			}
 
-			pub fn serialize_to_bytes(
+			pub fn serialize_into(
 				&self,
 				dst: &mut impl BufMut,
-			) -> Result<(), crate::serde::WriteError> {
-				crate::serde::put_u8(dst, $header)?;
-				crate::serde::put_var(dst, 0)?;
+			) -> Result<(), serde::SerializeError> {
+				serde::put_u8(dst, $header)?;
+				serde::put_var(dst, 0)?;
 				Ok(())
 			}
 		}

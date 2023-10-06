@@ -1,8 +1,8 @@
-use crate::packets::ParseError;
+use crate::packets::DeserializeError;
 use bytes::{Buf, Bytes};
 use std::num::NonZeroU16;
-use ParseError as Error;
-use ParseError::*;
+use DeserializeError as Error;
+use DeserializeError::*;
 
 type Result<T> = std::result::Result<T, Error>;
 

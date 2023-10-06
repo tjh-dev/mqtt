@@ -21,7 +21,7 @@ async fn main() -> mqtt::Result<()> {
 		host: arguments.host,
 		port: arguments
 			.port
-			.unwrap_or_else(|| if arguments.tls { 8883 } else { 1883 }),
+			.unwrap_or(if arguments.tls { 8883 } else { 1883 }),
 		tls: arguments.tls,
 		user: None,
 		password: None,

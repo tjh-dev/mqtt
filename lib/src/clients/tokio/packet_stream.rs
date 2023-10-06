@@ -1,4 +1,4 @@
-use crate::packets::{Frame, ParseError};
+use crate::packets::{DeserializeError, Frame};
 use bytes::{Buf, BytesMut};
 use std::io::Cursor;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -18,8 +18,8 @@ impl<T> PacketStream<T> {
 		}
 	}
 
-	pub fn parse_frame(&mut self) -> Result<Option<Frame>, ParseError> {
-		use ParseError::Incomplete;
+	pub fn parse_frame(&mut self) -> Result<Option<Frame>, DeserializeError> {
+		use DeserializeError::Incomplete;
 
 		let mut buf = Cursor::new(&self.buffer[..]);
 		match Frame::check(&mut buf) {

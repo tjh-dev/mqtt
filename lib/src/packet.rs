@@ -1,6 +1,6 @@
 use crate::{
 	packets::{
-		ConnAck, Connect, Disconnect, Frame, ParseError, PingReq, PingResp, PubAck, PubComp,
+		ConnAck, Connect, DeserializeError, Disconnect, Frame, PingReq, PingResp, PubAck, PubComp,
 		PubRec, PubRel, Publish, SubAck, Subscribe, UnsubAck, Unsubscribe,
 	},
 	serde,
@@ -62,10 +62,10 @@ const DISCONNECT: u8 = 0xe0;
 impl<'a> Packet<'a> {
 	/// Checks if a complete [`Packet`] can be decoded from `src`. If so,
 	/// returns the length of the packet.
-	pub fn check(src: &mut io::Cursor<&[u8]>) -> Result<u64, ParseError> {
+	pub fn check(src: &mut io::Cursor<&[u8]>) -> Result<u64, DeserializeError> {
 		let header = serde::get_u8(src)?;
 		if header == 0 || header == 0xf0 {
-			return Err(ParseError::InvalidHeader);
+			return Err(DeserializeError::InvalidHeader);
 		}
 
 		let length = serde::get_var(src)?;
@@ -74,46 +74,46 @@ impl<'a> Packet<'a> {
 	}
 
 	/// Parses a [`Packet`] from src.
-	pub fn parse(frame: &'a Frame) -> Result<Self, ParseError> {
+	pub fn parse(frame: &'a Frame) -> Result<Self, DeserializeError> {
 		let header = frame.header;
-		// let length = frame.payload.len();
-		let payload = &frame.payload;
 
-		match (header & 0xf0, header & 0x0f) {
-			(CONNECT, 0x00) => Ok(Connect::parse(payload)?.into()),
-			(CONNACK, 0x00) => Ok(ConnAck::parse(payload)?.into()),
-			(PUBLISH, flags) => Ok(Publish::parse(frame.payload.clone(), flags)?.into()),
-			(PUBACK, 0x00) => Ok(PubAck::parse(payload)?.into()),
-			(PUBREC, 0x00) => Ok(PubRec::parse(payload)?.into()),
-			(PUBREL, 0x02) => Ok(PubRel::parse(payload)?.into()),
-			(PUBCOMP, 0x00) => Ok(PubComp::parse(payload)?.into()),
-			(SUBSCRIBE, 0x02) => Ok(Subscribe::parse(payload)?.into()),
-			(SUBACK, 0x00) => Ok(SubAck::parse(payload)?.into()),
-			(UNSUBSCRIBE, 0x02) => Ok(Unsubscribe::parse(payload)?.into()),
-			(UNSUBACK, 0x00) => Ok(UnsubAck::parse(payload)?.into()),
-			(PINGREQ, 0x00) => Ok(PingReq::parse(payload)?.into()),
-			(PINGRESP, 0x00) => Ok(PingResp::parse(payload)?.into()),
-			(DISCONNECT, 0x00) => Ok(Disconnect::parse(payload)?.into()),
-			_ => Err(ParseError::InvalidHeader),
-		}
+		let packet = match (header & 0xf0, header & 0x0f) {
+			(CONNECT, 0x00) => Self::Connect(Box::new(frame.deserialize_packet()?)),
+			(CONNACK, 0x00) => Self::ConnAck(frame.deserialize_packet()?),
+			(PUBLISH, _) => Self::Publish(Box::new(frame.deserialize_packet()?)),
+			(PUBACK, 0x00) => Self::PubAck(frame.deserialize_packet()?),
+			(PUBREC, 0x00) => Self::PubRec(frame.deserialize_packet()?),
+			(PUBREL, 0x02) => Self::PubRel(frame.deserialize_packet()?),
+			(PUBCOMP, 0x00) => Self::PubComp(frame.deserialize_packet()?),
+			(SUBSCRIBE, 0x02) => Self::Subscribe(Box::new(frame.deserialize_packet()?)),
+			(SUBACK, 0x00) => SubAck::deserialize_from(frame)?.into(),
+			(UNSUBSCRIBE, 0x02) => Unsubscribe::deserialize_from(frame)?.into(),
+			(UNSUBACK, 0x00) => UnsubAck::deserialize_from(frame)?.into(),
+			(PINGREQ, 0x00) => PingReq::deserialize_from(frame)?.into(),
+			(PINGRESP, 0x00) => PingResp::deserialize_from(frame)?.into(),
+			(DISCONNECT, 0x00) => Disconnect::deserialize_from(frame)?.into(),
+			_ => return Err(DeserializeError::InvalidHeader),
+		};
+
+		Ok(packet)
 	}
 
-	pub fn serialize_to_bytes(&self, dst: &mut impl BufMut) -> Result<(), serde::WriteError> {
+	pub fn serialize_into(&self, dst: &mut impl BufMut) -> Result<(), serde::SerializeError> {
 		match self {
-			Self::Connect(connect) => connect.serialize_to_bytes(dst),
-			Self::ConnAck(connack) => connack.serialize_to_bytes(dst),
-			Self::Publish(publish) => publish.serialize_to_bytes(dst),
-			Self::PubAck(puback) => puback.serialize_to_bytes(dst),
-			Self::PubRec(pubrec) => pubrec.serialize_to_bytes(dst),
-			Self::PubRel(pubrel) => pubrel.serialize_to_bytes(dst),
-			Self::PubComp(pubcomp) => pubcomp.serialize_to_bytes(dst),
-			Self::Subscribe(subscribe) => subscribe.serialize_to_bytes(dst),
-			Self::SubAck(suback) => suback.serialize_to_bytes(dst),
-			Self::Unsubscribe(unsubscribe) => unsubscribe.serialize_to_bytes(dst),
-			Self::UnsubAck(unsuback) => unsuback.serialize_to_bytes(dst),
-			Self::PingReq => PingReq.serialize_to_bytes(dst),
-			Self::PingResp => PingResp.serialize_to_bytes(dst),
-			Self::Disconnect => Disconnect.serialize_to_bytes(dst),
+			Self::Connect(connect) => connect.serialize_into(dst),
+			Self::ConnAck(connack) => connack.serialize_into(dst),
+			Self::Publish(publish) => publish.serialize_into(dst),
+			Self::PubAck(puback) => puback.serialize_into(dst),
+			Self::PubRec(pubrec) => pubrec.serialize_into(dst),
+			Self::PubRel(pubrel) => pubrel.serialize_into(dst),
+			Self::PubComp(pubcomp) => pubcomp.serialize_into(dst),
+			Self::Subscribe(subscribe) => subscribe.serialize_into(dst),
+			Self::SubAck(suback) => suback.serialize_into(dst),
+			Self::Unsubscribe(unsubscribe) => unsubscribe.serialize_into(dst),
+			Self::UnsubAck(unsuback) => unsuback.serialize_into(dst),
+			Self::PingReq => PingReq.serialize_into(dst),
+			Self::PingResp => PingResp.serialize_into(dst),
+			Self::Disconnect => Disconnect.serialize_into(dst),
 		}
 	}
 

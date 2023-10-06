@@ -106,7 +106,7 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 {
 	pub fn new(connect: &packets::Connect) -> Self {
 		let mut buffer = BytesMut::new();
-		connect.serialize_to_bytes(&mut buffer).unwrap();
+		connect.serialize_into(&mut buffer).unwrap();
 
 		Self {
 			connect: buffer.freeze(),
@@ -120,7 +120,7 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 		tracing::trace!(?packet, "queueing packet");
 
 		packet
-			.serialize_to_bytes(&mut self.outgoing)
+			.serialize_into(&mut self.outgoing)
 			.expect("serializing to BytesMut should be infallible");
 	}
 

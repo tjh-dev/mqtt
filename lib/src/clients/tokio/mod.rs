@@ -49,9 +49,9 @@ impl<'a> Default for ClientConfiguration<'a> {
 	}
 }
 
-pub fn tcp_client<'o>(
+pub fn tcp_client(
 	connect_options: impl Into<TcpConnectOptions>,
-	options: ClientConfiguration<'o>,
+	options: ClientConfiguration,
 ) -> (client::Client, JoinHandle<crate::Result<()>>) {
 	let (tx, mut rx) = mpsc::unbounded_channel();
 

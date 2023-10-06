@@ -4,8 +4,7 @@ use crate::{
 		command::{PublishCommand, SubscribeCommand, UnsubscribeCommand},
 		tokio::Message,
 	},
-	packets::{self, DeserializePacket},
-	FilterBuf, Packet, PacketType, QoS,
+	packets, FilterBuf, Packet, PacketType, QoS,
 };
 use std::{
 	ops::{ControlFlow, ControlFlow::Continue},
@@ -42,7 +41,7 @@ pub async fn wait_for_connack(
 		_ = &mut sleep => return Err("timeout".into()),
 	};
 
-	let connack = ConnAck::from_frame(&frame)?;
+	let connack = ConnAck::deserialize_from(&frame)?;
 
 	// TODO: Check return code.
 
