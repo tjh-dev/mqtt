@@ -1,32 +1,74 @@
 use crate::{QoS, Topic};
 use std::{num::NonZeroU16, ops};
 
-/// Client credentials
-///
-/// Note that is not possible to set a password without also setting a username.
+/// Username and password used to authenticate the Client with the Server.
 #[derive(Clone, Debug)]
 pub struct Credentials<'a> {
 	pub username: &'a str,
 	pub password: Option<&'a str>,
 }
 
-impl<'a> From<&'a str> for Credentials<'a> {
-	#[inline]
-	fn from(username: &'a str) -> Self {
+impl<'a> Credentials<'a> {
+	/// Creates a new Credentials instance with the specified username.
+	///
+	/// # Examples
+	/// ```
+	/// # use tjh_mqtt::misc::Credentials;
+	/// let credentials = Credentials::new("tjh");
+	/// assert_eq!(credentials.username, "tjh");
+	/// ```
+	pub fn new(username: &'a str) -> Self {
 		Self {
 			username,
 			password: None,
 		}
+	}
+
+	/// Creates a new Credentials instance with the specified username
+	/// and password.
+	///
+	/// # Examples
+	/// ```
+	/// # use tjh_mqtt::misc::Credentials;
+	/// let credentials = Credentials::new_with("tjh", "password");
+	///
+	/// assert_eq!(credentials.username, "tjh");
+	/// assert_eq!(credentials.password, Some("password"));
+	/// ```
+	pub fn new_with(username: &'a str, password: &'a str) -> Self {
+		Self {
+			username,
+			password: Some(password),
+		}
+	}
+
+	/// Replaces the password field with the specified password.
+	///
+	/// # Examples
+	/// ```
+	/// # use tjh_mqtt::misc::Credentials;
+	/// let credentials = Credentials::new("tjh").set_password("password");
+	///
+	/// assert_eq!(credentials.username, "tjh");
+	/// assert_eq!(credentials.password, Some("password"));
+	/// ```
+	pub fn set_password(mut self, password: &'a str) -> Self {
+		self.password.replace(password);
+		self
+	}
+}
+
+impl<'a> From<&'a str> for Credentials<'a> {
+	#[inline]
+	fn from(username: &'a str) -> Self {
+		Self::new(username)
 	}
 }
 
 impl<'a> From<(&'a str, &'a str)> for Credentials<'a> {
 	#[inline]
 	fn from((username, password): (&'a str, &'a str)) -> Self {
-		Self {
-			username,
-			password: Some(password),
-		}
+		Self::new_with(username, password)
 	}
 }
 
