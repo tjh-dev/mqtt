@@ -29,7 +29,7 @@ pub struct ClientState<PubTx, PubResp, SubResp, UnSubResp> {
 	/// filters.
 	active_subscriptions: Vec<Subscription<PubTx>>,
 
-	pub outgoing: BytesMut,
+	outgoing: BytesMut,
 
 	/// Incoming Publish packets.
 	pub incoming: HashMap<PacketId, Message>,
@@ -124,13 +124,17 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 			.expect("serializing to BytesMut should be infallible");
 	}
 
+	pub fn has_outgoing(&self) -> bool {
+		!self.outgoing.is_empty()
+	}
+
 	/// Splits the outgoing packet buffer, returning a [`Bytes`] containing
 	/// serialized packets to be sent to the Server, and clearing the internal
 	/// buffer.
 	///
 	/// Returns `None` if the internal buffer is empty.
 	pub fn take_buffer(&mut self) -> Option<Bytes> {
-		(!self.outgoing.is_empty()).then(|| self.outgoing.split().freeze())
+		self.has_outgoing().then(|| self.outgoing.split().freeze())
 	}
 
 	/// Initiates a new connection state.

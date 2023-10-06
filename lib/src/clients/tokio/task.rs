@@ -64,8 +64,8 @@ pub async fn connected_task(
 	//
 	if !session_present && state.has_active_subscriptions() {
 		let (tx, rx) = oneshot::channel();
-		if state.generate_resubscribe(tx) {
-			let buffer = state.outgoing.split().freeze();
+		state.generate_resubscribe(tx);
+		if let Some(buffer) = state.take_buffer() {
 			connection.write(buffer).await?;
 		}
 
@@ -109,7 +109,7 @@ pub async fn connected_task(
 				}
 
 				// If we are about to send a packet to the Server, we don't need to send a PingReq.
-				if state.outgoing.is_empty() {
+				if state.has_outgoing() {
 					state.pingreq_state = Some(Instant::now());
 					state.queue_packet(&packets::PingReq);
 				}
