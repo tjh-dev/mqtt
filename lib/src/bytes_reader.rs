@@ -50,7 +50,7 @@ impl BytesReader {
 
 	pub fn take_id(&mut self) -> Result<NonZeroU16> {
 		let id = self.take_u16()?;
-		let id = NonZeroU16::new(id).ok_or(Error::ZeroPacketId)?;
+		let id = NonZeroU16::new(id).ok_or(Error::InvalidPacketId)?;
 		Ok(id)
 	}
 
@@ -140,7 +140,7 @@ impl<'b> Cursor<'b> {
 
 	pub fn take_id(&mut self) -> Result<NonZeroU16> {
 		let id = self.take_u16()?;
-		let id = NonZeroU16::new(id).ok_or(Error::ZeroPacketId)?;
+		let id = NonZeroU16::new(id).ok_or(Error::InvalidPacketId)?;
 		Ok(id)
 	}
 

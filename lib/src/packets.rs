@@ -685,7 +685,7 @@ pub enum DeserializeError {
 	InvalidFilter(filter::InvalidFilter),
 	InvalidTopic(crate::InvalidTopic),
 	InvalidHeader,
-	ZeroPacketId,
+	InvalidPacketId,
 	MalformedLength,
 	MalformedPacket(&'static str),
 	Utf8Error(Utf8Error),
