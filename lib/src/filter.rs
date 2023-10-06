@@ -19,13 +19,6 @@ pub struct Filter(str);
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FilterBuf(String);
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Matches {
-	pub exact: usize,
-	pub wildcard: usize,
-	pub multi_wildcard: usize,
-}
-
 #[derive(Debug, Error)]
 pub enum InvalidFilter {
 	#[error("filter cannot be empty")]
