@@ -31,14 +31,14 @@ type CommandTx = mpsc::UnboundedSender<Box<Command>>;
 type CommandRx = mpsc::UnboundedReceiver<Box<Command>>;
 
 #[derive(Debug)]
-pub struct Options<'a> {
+pub struct ClientConfiguration<'a> {
 	pub keep_alive: u16,
 	pub clean_session: bool,
 	pub client_id: String,
 	pub will: Option<Will<'a>>,
 }
 
-impl<'a> Default for Options<'a> {
+impl<'a> Default for ClientConfiguration<'a> {
 	fn default() -> Self {
 		Self {
 			keep_alive: 60,
@@ -51,7 +51,7 @@ impl<'a> Default for Options<'a> {
 
 pub fn tcp_client<'o>(
 	connect_options: impl Into<TcpConnectOptions>,
-	options: impl Into<Options<'o>>,
+	options: ClientConfiguration<'o>,
 ) -> (client::Client, JoinHandle<crate::Result<()>>) {
 	let (tx, mut rx) = mpsc::unbounded_channel();
 
@@ -64,7 +64,6 @@ pub fn tcp_client<'o>(
 	} else {
 		None
 	};
-	let options = options.into();
 
 	let keep_alive = Duration::from_secs(options.keep_alive.into());
 

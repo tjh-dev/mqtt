@@ -1,5 +1,8 @@
 use clap::{Parser, Subcommand, ValueEnum};
-use mqtt::{clients::tokio::Options, QoS};
+use mqtt::{
+	clients::{tokio::ClientConfiguration, TcpConnectOptions},
+	QoS,
+};
 use std::{io::stdin, process, str::from_utf8, time::Duration};
 use tokio::{io, signal, task::JoinHandle};
 use tracing::subscriber::SetGlobalDefaultError;
@@ -12,11 +15,26 @@ async fn main() -> mqtt::Result<()> {
 	setup_tracing()?;
 
 	let arguments = Arguments::parse();
-	let options: Options = (&arguments).into();
 	let Arguments { command, qos, .. } = arguments;
 
+	let connect_options = TcpConnectOptions {
+		host: arguments.host,
+		port: arguments
+			.port
+			.unwrap_or_else(|| if arguments.tls { 8883 } else { 1883 }),
+		tls: arguments.tls,
+		user: None,
+		password: None,
+		linger: true,
+	};
+
+	let config = ClientConfiguration {
+		client_id: build_client_id(!arguments.disable_clean_session),
+		..Default::default()
+	};
+
 	// Create the MQTT client.
-	let (client, handle) = mqtt::clients::tokio::tcp_client(options);
+	let (client, handle) = mqtt::clients::tokio::tcp_client(connect_options, config);
 
 	match command {
 		Commands::Sub { topics, .. } => {
@@ -112,32 +130,6 @@ fn setup_tracing() -> Result<(), SetGlobalDefaultError> {
 		.finish();
 
 	tracing::subscriber::set_global_default(subscriber)
-}
-
-impl From<&Arguments> for Options<'_> {
-	fn from(value: &Arguments) -> Self {
-		let Arguments {
-			host,
-			port,
-			tls,
-			id,
-			keep_alive,
-			disable_clean_session,
-			..
-		} = value;
-
-		Options {
-			host: host.clone(),
-			port: (*port).unwrap_or(if *tls { 8883 } else { 1883 }),
-			tls: *tls,
-			keep_alive: *keep_alive,
-			clean_session: !disable_clean_session,
-			client_id: id
-				.clone()
-				.unwrap_or_else(|| build_client_id(!disable_clean_session)),
-			..Default::default()
-		}
-	}
 }
 
 fn build_client_id(clean_session: bool) -> String {
