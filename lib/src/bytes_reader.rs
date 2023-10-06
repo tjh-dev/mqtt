@@ -67,7 +67,7 @@ impl BytesReader {
 
 	pub fn take_str(&mut self) -> Result<String> {
 		let bytes = self.take_str_bytes()?;
-		let s = String::from_utf8(bytes.into()).map_err(Error::FromUtf8Error)?;
+		let s = String::from_utf8(bytes.into()).map_err(|e| Error::Utf8Error(e.utf8_error()))?;
 		Ok(s)
 	}
 

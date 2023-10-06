@@ -5,7 +5,7 @@ use crate::{
 	serde, Filter, InvalidQoS, Packet, PacketId, QoS, Topic, TopicBuf,
 };
 use bytes::{BufMut, Bytes};
-use std::{error, fmt, str::Utf8Error, string::FromUtf8Error};
+use std::{error, fmt, str::Utf8Error};
 
 /// The only valid value for [`protocol_name`] in [`Connect`] packets.
 ///
@@ -689,7 +689,6 @@ pub enum DeserializeError {
 	MalformedLength,
 	MalformedPacket(&'static str),
 	Utf8Error(Utf8Error),
-	FromUtf8Error(FromUtf8Error),
 }
 
 impl From<Utf8Error> for DeserializeError {
