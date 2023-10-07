@@ -264,7 +264,7 @@ async fn process_packet<'a>(
 		}
 		Packet::PingResp => {
 			let elapsed = state.pingresp()?;
-			tracing::info!(?elapsed, "PingResp recevied");
+			tracing::info!(?elapsed, "PingResp received");
 			Ok(())
 		}
 		Packet::Connect(_) => Err(StateError::InvalidPacket(PacketType::Connect)),
