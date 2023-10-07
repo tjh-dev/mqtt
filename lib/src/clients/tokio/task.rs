@@ -148,7 +148,7 @@ async fn process_packet<'a>(
 				topic,
 				payload,
 			} => {
-				let Some(channel) = state.find_publish_channel(&topic) else {
+				let Some(channel) = state.find_publish_channel(topic) else {
 					return Err(StateError::DeliveryFailure((topic, retain, payload).into()));
 				};
 
@@ -174,7 +174,7 @@ async fn process_packet<'a>(
 					unimplemented!("duplicate Publish packets are not yet handled");
 				}
 
-				let Some(channel) = state.find_publish_channel(&topic) else {
+				let Some(channel) = state.find_publish_channel(topic) else {
 					return Err(StateError::DeliveryFailure((topic, retain, payload).into()));
 				};
 
@@ -290,7 +290,7 @@ async fn process_command(state: &mut ClientState, command: Command) -> Result<bo
 			retain,
 			response: response_tx,
 		}) => {
-			if let Some(response) = state.publish(topic, payload, qos, retain, response_tx) {
+			if let Some(response) = state.publish(&topic, payload, qos, retain, response_tx) {
 				let _ = response.send(());
 			};
 		}

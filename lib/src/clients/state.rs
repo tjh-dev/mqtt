@@ -2,7 +2,7 @@ use super::Message;
 use crate::{
 	misc::WrappingNonZeroU16,
 	packets::{self, Publish, SerializePacket, SubAck, Subscribe, UnsubAck, Unsubscribe},
-	FilterBuf, PacketId, PacketType, QoS, Topic, TopicBuf,
+	FilterBuf, PacketId, PacketType, QoS, Topic,
 };
 use bytes::{Bytes, BytesMut};
 use core::fmt;
@@ -297,7 +297,7 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 	/// Generates an outgoing Publish packet.
 	pub fn publish(
 		&mut self,
-		topic: TopicBuf,
+		topic: &Topic,
 		payload: Bytes,
 		qos: QoS,
 		retain: bool,

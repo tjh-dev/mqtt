@@ -29,10 +29,10 @@ pub struct Message {
 	pub payload: Bytes,
 }
 
-impl From<(TopicBuf, bool, Bytes)> for Message {
-	fn from((topic, retain, payload): (TopicBuf, bool, Bytes)) -> Self {
+impl<T: Into<TopicBuf>> From<(T, bool, Bytes)> for Message {
+	fn from((topic, retain, payload): (T, bool, Bytes)) -> Self {
 		Self {
-			topic,
+			topic: topic.into(),
 			retain,
 			payload,
 		}

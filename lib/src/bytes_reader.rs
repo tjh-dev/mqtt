@@ -25,6 +25,10 @@ impl BytesReader {
 		self.buffer.remaining()
 	}
 
+	pub fn advance(&mut self, amount: usize) {
+		self.buffer.advance(amount)
+	}
+
 	pub fn require(&self, len: usize) -> Result<()> {
 		if self.buffer.remaining() >= len {
 			Ok(())
@@ -52,23 +56,6 @@ impl BytesReader {
 		let id = self.take_u16()?;
 		let id = NonZeroU16::new(id).ok_or(Error::InvalidPacketId)?;
 		Ok(id)
-	}
-
-	pub fn take_bytes(&mut self, len: usize) -> Result<Bytes> {
-		self.require(len)?;
-		Ok(self.buffer.split_to(len))
-	}
-
-	pub fn take_str_bytes(&mut self) -> Result<Bytes> {
-		let len = self.take_u16()?;
-		let bytes = self.take_bytes(len.into())?;
-		Ok(bytes)
-	}
-
-	pub fn take_str(&mut self) -> Result<String> {
-		let bytes = self.take_str_bytes()?;
-		let s = String::from_utf8(bytes.into()).map_err(|e| Error::Utf8Error(e.utf8_error()))?;
-		Ok(s)
 	}
 
 	pub fn take_var(&mut self) -> Result<usize> {

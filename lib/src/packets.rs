@@ -2,7 +2,7 @@ use crate::{
 	bytes_reader::{BytesReader, Cursor},
 	filter,
 	misc::{self, Credentials, Will},
-	serde, Filter, InvalidQoS, Packet, PacketId, QoS, Topic, TopicBuf,
+	serde, Filter, InvalidQoS, Packet, PacketId, QoS, Topic,
 };
 use bytes::{BufMut, Bytes};
 use std::{error, fmt, str::Utf8Error};
@@ -116,32 +116,32 @@ pub struct ConnAck {
 }
 
 /// A Publish packet can be sent by either the Client or the Server.
-pub enum Publish {
+pub enum Publish<'a> {
 	AtMostOnce {
 		retain: bool,
-		topic: TopicBuf,
+		topic: &'a Topic,
 		payload: Bytes,
 	},
 	AtLeastOnce {
 		id: PacketId,
 		retain: bool,
 		duplicate: bool,
-		topic: TopicBuf,
+		topic: &'a Topic,
 		payload: Bytes,
 	},
 	ExactlyOnce {
 		id: PacketId,
 		retain: bool,
 		duplicate: bool,
-		topic: TopicBuf,
+		topic: &'a Topic,
 		payload: Bytes,
 	},
 }
 
-id_packet!(PubAck, Packet::PubAck, 0x40);
-id_packet!(PubRec, Packet::PubRec, 0x50);
-id_packet!(PubRel, Packet::PubRel, 0x62);
-id_packet!(PubComp, Packet::PubComp, 0x70);
+id_packet!(PubAck, Packet::PubAck, 0x40, "PubAck");
+id_packet!(PubRec, Packet::PubRec, 0x50, "PubRec");
+id_packet!(PubRel, Packet::PubRel, 0x62, "PubRel");
+id_packet!(PubComp, Packet::PubComp, 0x70, "PubComp");
 
 #[derive(Debug)]
 pub struct Subscribe<'a> {
@@ -161,7 +161,7 @@ pub struct Unsubscribe<'a> {
 	pub filters: Vec<&'a Filter>,
 }
 
-id_packet!(UnsubAck, Packet::UnsubAck, 0xb0);
+id_packet!(UnsubAck, Packet::UnsubAck, 0xb0, "UnsubAck");
 nul_packet!(PingReq, crate::packet::Packet::PingReq, 0xc0);
 nul_packet!(PingResp, crate::packet::Packet::PingResp, 0xd0);
 nul_packet!(Disconnect, crate::packet::Packet::Disconnect, 0xe0);
@@ -361,19 +361,24 @@ const PUBLISH_HEADER_RETAIN_FLAG: u8 = 0x01;
 const PUBLISH_HEADER_DUPLICATE_FLAG: u8 = 0x08;
 const PUBLISH_HEADER_QOS_MASK: u8 = 0x06;
 
-impl Publish {
-	// pub fn parse(payload: Bytes, flags: u8) -> Result<Self, DeserializeError> {
-	pub fn deserialize_from(frame: &Frame) -> Result<Self, DeserializeError> {
-		// let mut cursor = io::Cursor::new(payload);
+impl<'a> Publish<'a> {
+	pub fn deserialize_from(frame: &'a Frame) -> Result<Self, DeserializeError> {
+		// payload is a Bytes, so this clone should be cheap.
 		let mut reader = BytesReader::new(frame.payload.clone());
+
 		// Extract properties from the header flags.
 		let flags = frame.header & 0x0f;
 		let retain = flags & PUBLISH_HEADER_RETAIN_FLAG == PUBLISH_HEADER_RETAIN_FLAG;
 		let duplicate = flags & PUBLISH_HEADER_DUPLICATE_FLAG == PUBLISH_HEADER_DUPLICATE_FLAG;
 		let qos: QoS = ((flags & PUBLISH_HEADER_QOS_MASK) >> 1).try_into()?;
 
-		// let topic = Topic::new(serde::get_str(&mut cursor)?)?;
-		let topic = TopicBuf::new(reader.take_str()?)?;
+		// We can't borrow strings from BytesReader, so construct a Cursor so we can
+		// borrow the topic from the payload.
+		let mut cursor = Cursor::from_frame(frame);
+		let topic = Topic::new(cursor.take_str()?)?;
+
+		// Sync the position in the reader with the position of the cursor.
+		reader.advance(cursor.position());
 
 		// The interpretation of the remaining bytes depends on the QoS.
 		match qos {
@@ -384,10 +389,7 @@ impl Publish {
 					));
 				}
 
-				// Extract the payload.
 				let payload = reader.take_inner();
-				// let remaining = cursor.remaining();
-				// let payload = serde::get_slice(&mut cursor, remaining)?;
 
 				Ok(Self::AtMostOnce {
 					retain,
@@ -396,9 +398,6 @@ impl Publish {
 				})
 			}
 			QoS::AtLeastOnce => {
-				// let id = serde::get_id(&mut cursor)?;
-				// let remaining = cursor.remaining();
-				// let payload = serde::get_slice(&mut cursor, remaining)?;
 				let id = reader.take_id()?;
 				let payload = reader.take_inner();
 
@@ -411,9 +410,6 @@ impl Publish {
 				})
 			}
 			QoS::ExactlyOnce => {
-				// let id = serde::get_id(&mut cursor)?;
-				// let remaining = cursor.remaining();
-				// let payload = serde::get_slice(&mut cursor, remaining)?;
 				let id = reader.take_id()?;
 				let payload = reader.take_inner();
 
@@ -485,9 +481,9 @@ impl Publish {
 	#[inline]
 	pub fn topic(&self) -> &Topic {
 		match self {
-			Self::AtMostOnce { topic, .. } => topic,
-			Self::AtLeastOnce { topic, .. } => topic,
-			Self::ExactlyOnce { topic, .. } => topic,
+			Self::AtMostOnce { topic, .. }
+			| Self::AtLeastOnce { topic, .. }
+			| Self::ExactlyOnce { topic, .. } => topic,
 		}
 	}
 
@@ -495,9 +491,9 @@ impl Publish {
 	#[inline]
 	pub fn payload(&self) -> &[u8] {
 		match self {
-			Self::AtMostOnce { payload, .. } => payload,
-			Self::AtLeastOnce { payload, .. } => payload,
-			Self::ExactlyOnce { payload, .. } => payload,
+			Self::AtMostOnce { payload, .. }
+			| Self::AtLeastOnce { payload, .. }
+			| Self::ExactlyOnce { payload, .. } => payload,
 		}
 	}
 
@@ -515,9 +511,9 @@ impl Publish {
 	#[inline]
 	pub fn retain(&self) -> bool {
 		match self {
-			Self::AtMostOnce { retain, .. } => *retain,
-			Self::AtLeastOnce { retain, .. } => *retain,
-			Self::ExactlyOnce { retain, .. } => *retain,
+			Self::AtMostOnce { retain, .. }
+			| Self::AtLeastOnce { retain, .. }
+			| Self::ExactlyOnce { retain, .. } => *retain,
 		}
 	}
 
@@ -531,8 +527,7 @@ impl Publish {
 	pub fn id(&self) -> Option<PacketId> {
 		match self {
 			Self::AtMostOnce { .. } => None,
-			Self::AtLeastOnce { id, .. } => Some(*id),
-			Self::ExactlyOnce { id, .. } => Some(*id),
+			Self::AtLeastOnce { id, .. } | Self::ExactlyOnce { id, .. } => Some(*id),
 		}
 	}
 
@@ -546,13 +541,12 @@ impl Publish {
 	pub fn duplicate(&self) -> bool {
 		match self {
 			Self::AtMostOnce { .. } => false,
-			Self::AtLeastOnce { duplicate, .. } => *duplicate,
-			Self::ExactlyOnce { duplicate, .. } => *duplicate,
+			Self::AtLeastOnce { duplicate, .. } | Self::ExactlyOnce { duplicate, .. } => *duplicate,
 		}
 	}
 }
 
-impl fmt::Debug for Publish {
+impl fmt::Debug for Publish<'_> {
 	#[inline]
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		f.debug_struct("Publish")
@@ -727,7 +721,7 @@ impl fmt::Display for DeserializeError {
 
 impl error::Error for DeserializeError {}
 
-macro_rules! impl_serialize {
+macro_rules! impl_serde {
 	($name:tt) => {
 		impl SerializePacket for $name {
 			fn serialize_into(&self, dst: &mut impl BufMut) -> Result<(), serde::SerializeError> {
@@ -756,23 +750,23 @@ macro_rules! impl_serialize {
 	};
 }
 
-impl_serialize!(Connect, 'a);
-impl_serialize!(ConnAck);
-impl_serialize!(Publish);
-impl_serialize!(PubAck);
-impl_serialize!(PubRec);
-impl_serialize!(PubRel);
-impl_serialize!(PubComp);
-impl_serialize!(Subscribe, 'a);
-impl_serialize!(SubAck);
-impl_serialize!(Unsubscribe, 'a);
-impl_serialize!(UnsubAck);
-impl_serialize!(PingReq);
-impl_serialize!(PingResp);
-impl_serialize!(Disconnect);
+impl_serde!(Connect, 'a);
+impl_serde!(ConnAck);
+impl_serde!(Publish, 'a);
+impl_serde!(PubAck);
+impl_serde!(PubRec);
+impl_serde!(PubRel);
+impl_serde!(PubComp);
+impl_serde!(Subscribe, 'a);
+impl_serde!(SubAck);
+impl_serde!(Unsubscribe, 'a);
+impl_serde!(UnsubAck);
+impl_serde!(PingReq);
+impl_serde!(PingResp);
+impl_serde!(Disconnect);
 
 macro_rules! id_packet {
-	($name:tt,$variant:expr,$header:literal) => {
+	($name:tt,$variant:expr,$header:literal,$label:literal) => {
 		#[derive(Debug)]
 		pub struct $name {
 			pub id: PacketId,
@@ -783,9 +777,10 @@ macro_rules! id_packet {
 				let mut cursor = Cursor::from_frame(frame);
 
 				if cursor.remaining() != 2 {
-					return Err(DeserializeError::MalformedPacket(
-						"packet must have length 2",
-					));
+					return Err(DeserializeError::MalformedPacket(concat!(
+						$label,
+						" packet must have length 2"
+					)));
 				}
 
 				let id = cursor.take_id()?;

@@ -12,7 +12,7 @@ use bytes::BufMut;
 pub enum Packet<'a> {
 	Connect(Box<Connect<'a>>),
 	ConnAck(ConnAck),
-	Publish(Box<Publish>),
+	Publish(Box<Publish<'a>>),
 	PubAck(PubAck),
 	PubRec(PubRec),
 	PubRel(PubRel),
@@ -152,9 +152,9 @@ impl<'a> From<ConnAck> for Packet<'a> {
 	}
 }
 
-impl<'a> From<Publish> for Packet<'a> {
+impl<'a> From<Publish<'a>> for Packet<'a> {
 	#[inline]
-	fn from(value: Publish) -> Self {
+	fn from(value: Publish<'a>) -> Self {
 		Self::Publish(value.into())
 	}
 }
