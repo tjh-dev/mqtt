@@ -1,5 +1,5 @@
 use super::packet_stream::PacketStream;
-use crate::packets::Frame;
+use crate::Frame;
 use bytes::Buf;
 use tokio::{
 	io::{AsyncRead, AsyncWrite},

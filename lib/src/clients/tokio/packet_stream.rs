@@ -1,7 +1,4 @@
-use crate::{
-	bytes_reader::Cursor,
-	packets::{DeserializeError, Frame},
-};
+use crate::{bytes_reader::Cursor, packets::DeserializeError, Frame};
 use bytes::{Buf, BytesMut};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 

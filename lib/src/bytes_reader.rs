@@ -1,4 +1,4 @@
-use crate::packets::{DeserializeError, Frame};
+use crate::{packets::DeserializeError, Frame};
 use bytes::{Buf, Bytes};
 use std::num::NonZeroU16;
 use std::str::from_utf8;
