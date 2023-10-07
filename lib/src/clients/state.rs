@@ -407,7 +407,7 @@ impl<PubTx: fmt::Debug, PubResp, SubResp, UnSubResp>
 				#[cfg(feature = "tokio-client")]
 				{
 					let time = start.elapsed();
-					tracing::info!(topic = ?topic, filter = ?filter, time = ?time, "found channel for");
+					tracing::trace!(topic = ?topic, filter = ?filter, time = ?time, "found channel for");
 				}
 				return Some(channel);
 			}
