@@ -1,16 +1,12 @@
-mod client;
+pub(crate) mod client;
 mod mqtt_stream;
 mod packet_stream;
 mod task;
 
 use super::{
-	holdoff::HoldOff, ClientConfiguration, ClientState, Message, StateError, TcpConnectOptions,
+	holdoff::HoldOff, ClientConfiguration, ClientState, Message, StateError, TcpConfiguration,
 };
-use crate::{
-	clients::tokio::mqtt_stream::MqttStream,
-	misc::{Credentials, Will},
-	packets, FilterBuf, QoS,
-};
+use crate::{clients::tokio::mqtt_stream::MqttStream, misc::Credentials, packets, FilterBuf, QoS};
 use std::{ops::ControlFlow::Break, time::Duration};
 use tokio::{
 	net::TcpStream,
@@ -32,28 +28,15 @@ type Command = super::command::Command<
 type CommandTx = mpsc::UnboundedSender<Box<Command>>;
 type CommandRx = mpsc::UnboundedReceiver<Box<Command>>;
 
-impl<'a> Default for ClientConfiguration<'a> {
-	fn default() -> Self {
-		Self {
-			keep_alive: 60,
-			clean_session: true,
-			client_id: Default::default(),
-			will: Default::default(),
-		}
-	}
-}
-
 pub fn tcp_client(
-	connect_options: impl Into<TcpConnectOptions>,
-	options: ClientConfiguration,
+	options: ClientConfiguration<TcpConfiguration>,
 ) -> (client::Client, JoinHandle<crate::Result<()>>) {
 	let (tx, mut rx) = mpsc::unbounded_channel();
 
-	let connect_options: TcpConnectOptions = connect_options.into();
-	let credentials = if let Some(username) = connect_options.user.as_ref() {
+	let credentials = if let Some(username) = options.username.as_ref() {
 		Some(Credentials {
 			username,
-			password: connect_options.password.as_deref(),
+			password: options.password.as_deref(),
 		})
 	} else {
 		None
@@ -84,20 +67,20 @@ pub fn tcp_client(
 
 			// Open the the connection to the broker.
 			let Ok(stream) =
-				TcpStream::connect((connect_options.host.as_str(), connect_options.port)).await
+				TcpStream::connect((options.transport.host.as_str(), options.transport.port)).await
 			else {
 				continue;
 			};
 
-			if connect_options.linger {
+			if options.transport.linger {
 				stream.set_linger(Some(keep_alive))?;
 			}
 
 			#[cfg(feature = "tls")]
-			let mut connection = match connect_options.tls {
+			let mut connection = match options.transport.tls {
 				true => {
 					let connector = tls::configure_tls();
-					let dnsname = connect_options.host.as_str().try_into()?;
+					let dnsname = options.transport.host.as_str().try_into()?;
 					let stream = connector.connect(dnsname, stream).await?;
 					MqttStream::new(Box::new(stream), 8 * 1024)
 				}

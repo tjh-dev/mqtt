@@ -22,12 +22,14 @@ tokio = { version = "1.32", features = [
 tokio-rustls = { version = "0.24", optional = true }
 tokio-test = { version = "0.4", optional = true }
 tracing = { version = "0.1", optional = true }
+url = { version = "2.4.1", optional = true }
 webpki-roots = { version = "0.25", optional = true }
 
 [features]
-default = []
+default = ["url"]
 tokio-client = ["dep:tokio", "dep:tokio-test", "dep:tracing"]
 tls = ["dep:tokio-rustls", "dep:webpki-roots"]
+url = ["dep:url"]
 
 [package.metadata.docs.rs]
 all-features = true
