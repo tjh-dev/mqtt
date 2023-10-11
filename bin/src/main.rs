@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use mqtt::{
-	clients::{ClientConfiguration, TcpConnectOptions},
+	clients::{ClientConfiguration, TcpConfiguration},
 	QoS,
 };
 use std::{io::stdin, process, str::from_utf8, time::Duration};
@@ -17,14 +17,12 @@ async fn main() -> mqtt::Result<()> {
 	let arguments = Arguments::parse();
 	let Arguments { command, qos, .. } = arguments;
 
-	let connect_options = TcpConnectOptions {
+	let transport = TcpConfiguration {
 		host: arguments.host,
 		port: arguments
 			.port
 			.unwrap_or(if arguments.tls { 8883 } else { 1883 }),
 		tls: arguments.tls,
-		user: None,
-		password: None,
 		linger: true,
 	};
 
@@ -35,7 +33,7 @@ async fn main() -> mqtt::Result<()> {
 	};
 
 	// Create the MQTT client.
-	let (client, handle) = mqtt::clients::tokio::tcp_client(connect_options, config);
+	let (client, handle) = mqtt::clients::tokio::tcp_client(config.with_transport(transport));
 
 	match command {
 		Commands::Sub { topics, .. } => {
