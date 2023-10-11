@@ -10,7 +10,7 @@ pub(crate) mod command;
 #[cfg(feature = "tokio-client")]
 mod holdoff;
 
-use crate::TopicBuf;
+use crate::{misc::Will, TopicBuf};
 use bytes::Bytes;
 
 pub use self::{
@@ -37,6 +37,14 @@ impl<T: Into<TopicBuf>> From<(T, bool, Bytes)> for Message {
 			payload,
 		}
 	}
+}
+
+#[derive(Debug)]
+pub struct ClientConfiguration<'a> {
+	pub keep_alive: u16,
+	pub clean_session: bool,
+	pub client_id: String,
+	pub will: Option<Will<'a>>,
 }
 
 /// Options for connecting to the Server.

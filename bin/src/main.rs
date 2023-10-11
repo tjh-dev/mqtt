@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use mqtt::{
-	clients::{tokio::ClientConfiguration, TcpConnectOptions},
+	clients::{ClientConfiguration, TcpConnectOptions},
 	QoS,
 };
 use std::{io::stdin, process, str::from_utf8, time::Duration};

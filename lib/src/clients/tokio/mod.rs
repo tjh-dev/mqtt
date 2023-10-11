@@ -3,7 +3,9 @@ mod mqtt_stream;
 mod packet_stream;
 mod task;
 
-use super::{holdoff::HoldOff, ClientState, Message, StateError, TcpConnectOptions};
+use super::{
+	holdoff::HoldOff, ClientConfiguration, ClientState, Message, StateError, TcpConnectOptions,
+};
 use crate::{
 	clients::tokio::mqtt_stream::MqttStream,
 	misc::{Credentials, Will},
@@ -29,14 +31,6 @@ type Command = super::command::Command<
 >;
 type CommandTx = mpsc::UnboundedSender<Box<Command>>;
 type CommandRx = mpsc::UnboundedReceiver<Box<Command>>;
-
-#[derive(Debug)]
-pub struct ClientConfiguration<'a> {
-	pub keep_alive: u16,
-	pub clean_session: bool,
-	pub client_id: String,
-	pub will: Option<Will<'a>>,
-}
 
 impl<'a> Default for ClientConfiguration<'a> {
 	fn default() -> Self {
