@@ -18,6 +18,10 @@ pub use self::{
 	state::{ClientState, StateError},
 };
 
+pub const DEFAULT_MQTT_HOST: &str = "localhost";
+pub const DEFAULT_MQTT_PORT: u16 = 1883;
+pub const DEFAULT_MQTTS_PORT: u16 = 8883;
+
 /// A published message received from the Server.
 #[derive(Debug)]
 pub struct Message {
@@ -74,6 +78,45 @@ impl<'a> ClientConfiguration<'a, ()> {
 	}
 }
 
+#[cfg(feature = "url")]
+impl<'a> TryFrom<url::Url> for ClientConfiguration<'a, ()> {
+	type Error = Box<dyn std::error::Error>;
+	fn try_from(value: url::Url) -> Result<Self, Self::Error> {
+		let username: Option<String> = match value.username() {
+			"" => None,
+			username => Some(username.into()),
+		};
+
+		let mut clean_session = true;
+		let mut client_id = Default::default();
+		let mut keep_alive = 60;
+
+		for (key, value) in value.query_pairs() {
+			match key.as_ref() {
+				"clean_session" => {
+					clean_session = value.parse()?;
+				}
+				"client_id" => {
+					client_id = value.into_owned();
+				}
+				"keep_alive" => {
+					keep_alive = value.parse()?;
+				}
+				_ => {}
+			}
+		}
+
+		Ok(Self {
+			username,
+			password: value.password().map(|x| x.into()),
+			clean_session,
+			client_id,
+			keep_alive,
+			..Default::default()
+		})
+	}
+}
+
 impl<'a, T> ClientConfiguration<'a, T> {
 	pub fn default_with(transport: T) -> Self {
 		Self {
@@ -106,17 +149,19 @@ pub struct UnsupportedScheme;
 impl TryFrom<url::Url> for TcpConfiguration {
 	type Error = UnsupportedScheme;
 	fn try_from(value: url::Url) -> Result<Self, Self::Error> {
-		let host = value.host_str().unwrap_or("localhost").into();
 		let tls = match value.scheme() {
 			"mqtt" | "tcp" => false,
 			"mqtts" | "ssl" => true,
 			_ => return Err(UnsupportedScheme),
 		};
 
-		let port = value.port().unwrap_or(if tls { 8883 } else { 1883 });
+		let port = value.port().unwrap_or(match tls {
+			true => DEFAULT_MQTTS_PORT,
+			false => DEFAULT_MQTT_PORT,
+		});
 
 		Ok(Self {
-			host,
+			host: value.host_str().unwrap_or(DEFAULT_MQTT_HOST).into(),
 			port,
 			tls,
 			linger: true,
@@ -132,12 +177,12 @@ pub fn client(
 	::tokio::task::JoinHandle<crate::Result<()>>,
 ) {
 	match url.scheme() {
-		"tcp" | "mqtt" => {
+		"mqtt" | "tcp" => {
 			let options = ClientConfiguration::default_with(url.try_into().unwrap());
 			tokio::tcp_client(options)
 		}
 		#[cfg(feature = "tls")]
-		"ssl" | "mqtts" => {
+		"mqtts" | "ssl" => {
 			let options = ClientConfiguration::default_with(url.try_into().unwrap());
 			tokio::tcp_client(options)
 		}
