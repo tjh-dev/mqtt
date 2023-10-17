@@ -48,8 +48,8 @@ impl Client {
 	/// ```no_run
 	/// # tokio_test::block_on(async {
 	/// # use core::str::from_utf8;
-	/// use tjh_mqtt::clients::tokio;
-	/// let (client, handle) = tokio::tcp_client(("localhost", 1883));
+	/// use tjh_mqtt::clients::client;
+	/// let (client, handle) = client("mqtt://localhost".try_into().unwrap());
 	///
 	/// // Subscribe to topic "a/b" with the default quality of service (AtMostOnce).
 	/// let mut subscription = client.subscribe("a/b", 8).await.unwrap();
@@ -112,8 +112,8 @@ impl Client {
 	///
 	/// ```no_run
 	/// # tokio_test::block_on(async {
-	/// use tjh_mqtt::{clients::tokio, QoS::AtMostOnce};
-	/// let (client, handle) = tokio::tcp_client(("localhost", 1883));
+	/// use tjh_mqtt::{clients::client, QoS::AtMostOnce};
+	/// let (client, handle) = client("mqtt://localhost".try_into().unwrap());
 	///
 	/// // Publish a message.
 	/// if client
