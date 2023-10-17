@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use mqtt::{
-	clients::{ClientConfiguration, TcpConfiguration},
+	clients::{ClientConfiguration, ClientOptions},
 	QoS,
 };
 use std::{io::stdin, process, str::from_utf8, time::Duration};
@@ -17,23 +17,37 @@ async fn main() -> mqtt::Result<()> {
 	let arguments = Arguments::parse();
 	let Arguments { command, qos, .. } = arguments;
 
-	let transport = TcpConfiguration {
-		host: arguments.host,
-		port: arguments
-			.port
-			.unwrap_or(if arguments.tls { 8883 } else { 1883 }),
-		tls: arguments.tls,
-		linger: true,
+	// let transport = TcpConfiguration {
+	// 	host: arguments.host,
+	// 	port: arguments
+	// 		.port
+	// 		.unwrap_or(if arguments.tls { 8883 } else { 1883 }),
+	// 	tls: arguments.tls,
+	// 	linger: true,
+	// };
+
+	// let config = ClientConfiguration {
+	// 	client_id: build_client_id(!arguments.disable_clean_session),
+	// 	keep_alive: arguments.keep_alive,
+	// 	..Default::default()
+	// };
+	println!("{:?}", arguments.host);
+	let server_url: url::Url = if arguments.host.contains("://") {
+		arguments.host.as_str().try_into()?
+	} else {
+		format!("mqtt://{}", arguments.host).as_str().try_into()?
 	};
 
-	let config = ClientConfiguration {
-		client_id: build_client_id(!arguments.disable_clean_session),
-		keep_alive: arguments.keep_alive,
-		..Default::default()
-	};
+	let mut client_configuration = ClientConfiguration::from_url(&server_url);
+	client_configuration.keep_alive = arguments.keep_alive;
+	client_configuration.clean_session = !arguments.disable_clean_session;
+	client_configuration.client_id = arguments
+		.id
+		.unwrap_or(build_client_id(!arguments.disable_clean_session));
 
+	let client_options = ClientOptions::new((&server_url).try_into()?, client_configuration);
 	// Create the MQTT client.
-	let (client, handle) = mqtt::clients::tokio::tcp_client(config.with_transport(transport));
+	let (client, handle) = mqtt::create_client(client_options);
 
 	match command {
 		Commands::Sub { topics, .. } => {
@@ -50,7 +64,7 @@ async fn main() -> mqtt::Result<()> {
 					let timeout = tokio::time::sleep(EXIT_TIMEOUT);
 					tokio::pin!(timeout);
 					tokio::select! {
-						_ = timeout => {
+						_ = &mut timeout => {
 							tracing::warn!("Unsubscribe command timed-out, exiting");
 							process::exit(1);
 						}
@@ -67,8 +81,6 @@ async fn main() -> mqtt::Result<()> {
 					message.topic,
 					from_utf8(&message.payload).unwrap_or_default()
 				);
-
-				// tokio::time::sleep(Duration::from_millis(100)).await;
 			}
 
 			signal_handler.await??;
