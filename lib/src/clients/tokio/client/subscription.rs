@@ -28,8 +28,8 @@ impl Subscription {
 	/// ```no_run
 	/// # tokio_test::block_on(async {
 	/// # use core::str::from_utf8;
-	/// # use tjh_mqtt::clients::client;
-	/// # let (client, handle) = client("mqtt://localhost".try_into().unwrap());
+	/// # use tjh_mqtt::clients::create_client;
+	/// # let (client, handle) = create_client("mqtt://localhost".try_into().unwrap());
 	/// let mut subscription = client.subscribe("a/b", 2).await.unwrap();
 	/// while let Some(message) = subscription.recv().await {
 	/// 	println!("{}: {:?}", &message.topic, &message.payload[..]);

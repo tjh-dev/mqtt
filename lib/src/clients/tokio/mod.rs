@@ -29,30 +29,33 @@ type CommandTx = mpsc::UnboundedSender<Box<Command>>;
 type CommandRx = mpsc::UnboundedReceiver<Box<Command>>;
 
 pub fn tcp_client(
-	options: ClientConfiguration<TcpConfiguration>,
+	transport: TcpConfiguration,
+	configuration: ClientConfiguration,
 ) -> (client::Client, JoinHandle<crate::Result<()>>) {
+	dbg!(&transport, &configuration);
 	let (tx, mut rx) = mpsc::unbounded_channel();
 
-	let credentials = if let Some(username) = options.username.as_ref() {
+	let credentials = if let Some(username) = configuration.username.as_ref() {
 		Some(Credentials {
 			username,
-			password: options.password.as_deref(),
+			password: configuration.password.as_deref(),
 		})
 	} else {
 		None
 	};
 
-	let keep_alive = Duration::from_secs(options.keep_alive.into());
+	let keep_alive = Duration::from_secs(configuration.keep_alive.into());
 
 	// Construct a Connect packet.
 	let connect = packets::Connect {
-		client_id: &options.client_id,
-		keep_alive: options.keep_alive,
-		clean_session: options.clean_session,
+		client_id: &configuration.client_id,
+		keep_alive: configuration.keep_alive,
+		clean_session: configuration.clean_session,
 		credentials,
-		will: options.will,
+		will: configuration.will,
 		..Default::default()
 	};
+	tracing::debug!(?connect);
 
 	let mut state = ClientState::new(&connect);
 
@@ -66,28 +69,15 @@ pub fn tcp_client(
 				.await;
 
 			// Open the the connection to the broker.
-			let Ok(stream) =
-				TcpStream::connect((options.transport.host.as_str(), options.transport.port)).await
+			let Ok(stream) = TcpStream::connect((transport.host.as_str(), transport.port)).await
 			else {
 				continue;
 			};
 
-			if options.transport.linger {
+			if transport.linger {
 				stream.set_linger(Some(keep_alive))?;
 			}
 
-			#[cfg(feature = "tls")]
-			let mut connection = match options.transport.tls {
-				true => {
-					let connector = tls::configure_tls();
-					let dnsname = options.transport.host.as_str().try_into()?;
-					let stream = connector.connect(dnsname, stream).await?;
-					MqttStream::new(Box::new(stream), 8 * 1024)
-				}
-				false => MqttStream::new(Box::new(stream), 8 * 1024),
-			};
-
-			#[cfg(not(feature = "tls"))]
 			let mut connection = MqttStream::new(Box::new(stream), 8 * 1024);
 
 			let Ok(connack) = task::wait_for_connack(&mut state, &mut connection).await else {

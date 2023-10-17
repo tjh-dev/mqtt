@@ -44,42 +44,129 @@ impl<T: Into<TopicBuf>> From<(T, bool, Bytes)> for Message {
 	}
 }
 
+/// Transport options.
 #[derive(Debug)]
-pub struct ClientConfiguration<'a, T = ()> {
-	pub transport: T,
-	//
+pub enum Transport {
+	/// Raw TCP transport.
+	Tcp(TcpConfiguration),
+}
+
+pub struct ClientOptions<'a> {
+	transport: Transport,
+	configuration: ClientConfiguration<'a>,
+}
+
+impl<'a> ClientOptions<'a> {
+	/// Creates a new `ClientOptions` instance with specified transport and
+	/// configuration.
+	pub fn new(transport: Transport, configuration: ClientConfiguration<'a>) -> Self {
+		Self {
+			transport,
+			configuration,
+		}
+	}
+
+	#[cfg(feature = "url")]
+	pub fn try_from_url(url: &url::Url) -> Result<Self, UnsupportedScheme> {
+		let transport = url.try_into()?;
+		let configuration = ClientConfiguration::from_url(url);
+		Ok(Self {
+			transport,
+			configuration,
+		})
+	}
+}
+
+/// Client configuration which is independent from the transport protocol.
+#[derive(Debug)]
+pub struct ClientConfiguration<'a> {
+	/// Keep alive timeout in seconds.
+	///
+	/// Defaults to 60 seconds.
 	pub keep_alive: u16,
 	pub clean_session: bool,
 	pub client_id: String,
 
+	/// Username for authentication.
 	pub username: Option<String>,
+
+	/// Password for authentication.
+	///
+	/// This will be ignored if no username is set.
 	pub password: Option<String>,
 	pub will: Option<Will<'a>>,
+
+	/// Controls whether the client task should attempt to automatically
+	/// reconnect.
+	pub reconnect: bool,
 }
 
-impl<'a> Default for ClientConfiguration<'a, ()> {
-	#[inline]
+impl<'a> Default for ClientConfiguration<'a> {
 	fn default() -> Self {
-		Self::default_with(())
-	}
-}
-
-impl<'a> ClientConfiguration<'a, ()> {
-	pub fn with_transport<T>(self, transport: T) -> ClientConfiguration<'a, T> {
-		ClientConfiguration {
-			transport,
-			keep_alive: self.keep_alive,
-			clean_session: self.clean_session,
-			client_id: self.client_id,
-			username: self.username,
-			password: self.password,
-			will: self.will,
+		Self {
+			keep_alive: 60,
+			clean_session: true,
+			client_id: Default::default(),
+			username: Default::default(),
+			password: Default::default(),
+			will: Default::default(),
+			reconnect: true,
 		}
 	}
 }
 
+impl<'a> ClientConfiguration<'a> {
+	#[cfg(feature = "url")]
+	pub fn from_url(url: &url::Url) -> Self {
+		let mut config: ClientConfiguration<'a> = Default::default();
+
+		if !url.username().is_empty() {
+			config.username = Some(url.username().into());
+		}
+		config.password = url.password().map(|x| x.into());
+
+		for (key, value) in url.query_pairs() {
+			match key.as_ref() {
+				"clean_session" => {
+					let Ok(clean_session) = value.parse() else {
+						continue;
+					};
+					config.clean_session = clean_session;
+				}
+				"client_id" => {
+					let Ok(client_id) = value.parse() else {
+						continue;
+					};
+					config.client_id = client_id;
+				}
+				"keep_alive" => {
+					let Ok(keep_alive) = value.parse() else {
+						continue;
+					};
+					config.keep_alive = keep_alive;
+				}
+				_ => {}
+			}
+		}
+
+		config
+	}
+
+	pub fn into_options<T, E>(self, transport: T) -> Result<ClientOptions<'a>, E>
+	where
+		T: TryInto<Transport>,
+		E: From<T::Error>,
+	{
+		let transport = transport.try_into()?;
+		Ok(ClientOptions {
+			transport,
+			configuration: self,
+		})
+	}
+}
+
 #[cfg(feature = "url")]
-impl<'a> TryFrom<url::Url> for ClientConfiguration<'a, ()> {
+impl<'a> TryFrom<url::Url> for ClientConfiguration<'a> {
 	type Error = Box<dyn std::error::Error>;
 	fn try_from(value: url::Url) -> Result<Self, Self::Error> {
 		let username: Option<String> = match value.username() {
@@ -117,27 +204,12 @@ impl<'a> TryFrom<url::Url> for ClientConfiguration<'a, ()> {
 	}
 }
 
-impl<'a, T> ClientConfiguration<'a, T> {
-	pub fn default_with(transport: T) -> Self {
-		Self {
-			transport,
-			keep_alive: 60,
-			clean_session: true,
-			client_id: Default::default(),
-			username: Default::default(),
-			password: Default::default(),
-			will: Default::default(),
-		}
-	}
-}
-
 /// Configuration for connecting to a Server over TCP.
+#[derive(Debug)]
 pub struct TcpConfiguration {
 	/// Hostname of IP address of the MQTT Server.
 	pub host: String,
 	pub port: u16,
-	#[cfg(feature = "tls")]
-	pub tls: bool,
 	pub linger: bool,
 }
 
@@ -146,46 +218,64 @@ pub struct TcpConfiguration {
 pub struct UnsupportedScheme;
 
 #[cfg(feature = "url")]
-impl TryFrom<url::Url> for TcpConfiguration {
+impl TryFrom<&url::Url> for Transport {
 	type Error = UnsupportedScheme;
-	fn try_from(value: url::Url) -> Result<Self, Self::Error> {
-		let tls = match value.scheme() {
-			"mqtt" | "tcp" => false,
-			"mqtts" | "ssl" => true,
-			_ => return Err(UnsupportedScheme),
-		};
+	fn try_from(value: &url::Url) -> Result<Self, Self::Error> {
+		match value.scheme() {
+			"mqtt" | "tcp" => {
+				let transport = TcpConfiguration {
+					host: value.host_str().unwrap_or(DEFAULT_MQTT_HOST).into(),
+					port: value.port().unwrap_or(DEFAULT_MQTT_PORT),
+					linger: true,
+				};
 
-		let port = value.port().unwrap_or(match tls {
-			true => DEFAULT_MQTTS_PORT,
-			false => DEFAULT_MQTT_PORT,
-		});
-
-		Ok(Self {
-			host: value.host_str().unwrap_or(DEFAULT_MQTT_HOST).into(),
-			port,
-			tls,
-			linger: true,
-		})
+				Ok(Self::Tcp(transport))
+			}
+			_ => Err(UnsupportedScheme),
+		}
 	}
 }
 
-#[cfg(all(feature = "url", feature = "tokio-client"))]
-pub fn client(
-	url: url::Url,
+#[cfg(feature = "url")]
+impl TryFrom<&url::Url> for ClientOptions<'_> {
+	type Error = UnsupportedScheme;
+	#[inline]
+	fn try_from(value: &url::Url) -> Result<Self, Self::Error> {
+		Self::try_from_url(value)
+	}
+}
+
+#[cfg(feature = "url")]
+impl TryFrom<url::Url> for ClientOptions<'_> {
+	type Error = UnsupportedScheme;
+	#[inline]
+	fn try_from(value: url::Url) -> Result<Self, Self::Error> {
+		Self::try_from(&value)
+	}
+}
+
+#[cfg(feature = "url")]
+impl TryFrom<&str> for ClientOptions<'_> {
+	type Error = UnsupportedScheme;
+	#[inline]
+	fn try_from(value: &str) -> Result<Self, Self::Error> {
+		let url: url::Url = value.try_into().map_err(|_| UnsupportedScheme)?;
+		Self::try_from(url)
+	}
+}
+
+#[cfg(feature = "tokio-client")]
+pub fn create_client(
+	options: ClientOptions,
 ) -> (
 	tokio::client::Client,
 	::tokio::task::JoinHandle<crate::Result<()>>,
 ) {
-	match url.scheme() {
-		"mqtt" | "tcp" => {
-			let options = ClientConfiguration::default_with(url.try_into().unwrap());
-			tokio::tcp_client(options)
-		}
-		#[cfg(feature = "tls")]
-		"mqtts" | "ssl" => {
-			let options = ClientConfiguration::default_with(url.try_into().unwrap());
-			tokio::tcp_client(options)
-		}
-		_ => unimplemented!(),
+	let ClientOptions {
+		transport,
+		configuration,
+	} = options;
+	match transport {
+		Transport::Tcp(transport) => tokio::tcp_client(transport, configuration),
 	}
 }
