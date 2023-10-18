@@ -30,7 +30,7 @@ impl BytesReader {
 	}
 
 	pub fn require(&self, len: usize) -> Result<()> {
-		if self.buffer.remaining() >= len {
+		if self.buffer.remaining() > len {
 			Ok(())
 		} else {
 			Err(Incomplete)
@@ -104,11 +104,11 @@ impl<'b> Cursor<'b> {
 	}
 
 	pub fn require(&self, len: usize) -> Result<()> {
-		if self.buffer.remaining() >= len {
-			Ok(())
-		} else {
-			Err(Incomplete)
+		if self.remaining() < len {
+			return Err(Incomplete);
 		}
+
+		Ok(())
 	}
 
 	pub fn take_u8(&mut self) -> Result<u8> {
@@ -163,5 +163,28 @@ impl<'b> Cursor<'b> {
 		}
 
 		Ok(value)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::Cursor;
+
+	#[test]
+	fn remaining() {
+		let buffer = [0x01, 0x02, 0x03, 0x04];
+
+		let mut cursor = Cursor::new(&buffer);
+		assert!(cursor.require(buffer.len()).is_ok());
+		assert!(cursor.require(buffer.len() + 1).is_err());
+		let s1 = cursor.take_slice(buffer.len()).unwrap();
+
+		assert_eq!(s1, buffer);
+		assert_eq!(cursor.remaining(), 0);
+		assert_eq!(cursor.position, 4);
+
+		assert!(cursor.require(0).is_ok());
+		assert!(cursor.require(1).is_err());
+		assert!(cursor.require(2).is_err());
 	}
 }
