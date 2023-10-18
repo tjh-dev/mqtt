@@ -59,7 +59,7 @@ impl Frame {
 
 		let header = reader.take_u8()?;
 		let length = reader.take_var()?;
-		debug_assert_eq!(length, reader.remaining());
+		assert_eq!(length, reader.remaining());
 
 		// Assume the payload is the reset of the buffer.
 		let payload = reader.take_inner();

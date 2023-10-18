@@ -30,11 +30,11 @@ impl BytesReader {
 	}
 
 	pub fn require(&self, len: usize) -> Result<()> {
-		if self.buffer.remaining() > len {
-			Ok(())
-		} else {
-			Err(Incomplete)
+		if self.remaining() < len {
+			return Err(Incomplete);
 		}
+
+		Ok(())
 	}
 
 	pub fn take_inner(self) -> Bytes {
