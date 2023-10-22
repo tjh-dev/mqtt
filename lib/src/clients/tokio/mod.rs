@@ -32,7 +32,6 @@ pub fn tcp_client(
 	transport: TcpConfiguration,
 	configuration: ClientConfiguration,
 ) -> (client::Client, JoinHandle<crate::Result<()>>) {
-	dbg!(&transport, &configuration);
 	let (tx, mut rx) = mpsc::unbounded_channel();
 
 	let credentials = if let Some(username) = configuration.username.as_ref() {
