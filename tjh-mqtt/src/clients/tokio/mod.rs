@@ -3,7 +3,7 @@ mod mqtt_stream;
 mod packet_stream;
 mod task;
 
-use super::{holdoff::HoldOff, ClientState, StateError};
+use super::{holdoff::HoldOff, ClientState, Message, StateError};
 use crate::{
 	clients::tokio::mqtt_stream::MqttStream,
 	misc::{Credentials, Will},
@@ -16,7 +16,7 @@ use tokio::{
 	task::JoinHandle,
 };
 
-pub use client::{Client, Message, Subscription};
+pub use client::{Client, Subscription};
 
 pub type PublishTx = mpsc::Sender<Message>;
 pub type PublishRx = mpsc::Receiver<Message>;

@@ -26,7 +26,7 @@ tracing = { version = "0.1", optional = true }
 webpki-roots = { version = "0.25", optional = true }
 
 [features]
-default = ["serde"]
+default = []
 serde = ["dep:serde"]
 tokio-client = ["dep:tokio", "dep:tokio-test", "dep:tracing"]
 tls = ["dep:tokio-rustls", "dep:webpki-roots"]

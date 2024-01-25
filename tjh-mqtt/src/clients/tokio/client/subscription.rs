@@ -3,23 +3,11 @@ use crate::{
 	clients::{
 		command::{Command, UnsubscribeCommand},
 		tokio::PublishRx,
+		Message,
 	},
-	FilterBuf, QoS, TopicBuf,
+	FilterBuf, QoS,
 };
-use bytes::Bytes;
 use tokio::sync::oneshot;
-
-/// A published message received from the Server.
-#[derive(Debug)]
-pub struct Message {
-	/// The topic the published message.
-	pub topic: TopicBuf,
-
-	pub retain: bool,
-
-	/// The payload of the published message.
-	pub payload: Bytes,
-}
 
 /// A subscription to one or more topics.
 #[derive(Debug)]

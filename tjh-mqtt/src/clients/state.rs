@@ -1,3 +1,4 @@
+use super::Message;
 use crate::{
 	misc::WrappingNonZeroU16,
 	packets::{self, Publish, SerializePacket, SubAck, Subscribe, UnsubAck, Unsubscribe},
@@ -10,8 +11,6 @@ use std::{
 	num::NonZeroU16,
 	time::{Duration, Instant},
 };
-
-use super::tokio::Message;
 
 #[derive(Debug)]
 pub enum StateError<'a> {
