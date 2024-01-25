@@ -93,7 +93,7 @@ impl Topic {
 	/// # use tjh_mqtt::Topic;
 	/// const TOPIC: &Topic = Topic::from_static("a/b");
 	/// ```
-	pub const fn from_static(s: &'static str) -> &Self {
+	pub const fn from_static(s: &'static str) -> &'static Topic {
 		Self::from_str(s)
 	}
 
