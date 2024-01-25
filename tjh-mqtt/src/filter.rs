@@ -116,15 +116,6 @@ impl Filter {
 		inner.len()
 	}
 
-	/// Returns `true` if the filter has length of zero bytes.
-	///
-	/// Empty filters are not valid, so this should *always* be `false`.
-	#[inline]
-	pub const fn is_empty(&self) -> bool {
-		let Self(inner) = self;
-		inner.is_empty()
-	}
-
 	/// Returns the inner filter.
 	#[inline]
 	pub const fn as_str(&self) -> &str {

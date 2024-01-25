@@ -47,15 +47,6 @@ impl Topic {
 		inner.len()
 	}
 
-	/// Returns `true` if the topic has length of zero bytes.
-	///
-	/// Empty topics are not valid, so this should *always* be `false`.
-	#[inline]
-	pub const fn is_empty(&self) -> bool {
-		let Self(inner) = self;
-		inner.is_empty()
-	}
-
 	/// Returns the inner topic str.
 	#[inline]
 	pub const fn as_str(&self) -> &str {
