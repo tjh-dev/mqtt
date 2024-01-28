@@ -457,6 +457,40 @@ mod tests {
 			})
 		);
 	}
+
+	#[test]
+	#[cfg(feature = "serde")]
+	fn deserialize_filter() {
+		let filter: &Filter = serde_json::from_str("\"alpha/beta/gamma\"").unwrap();
+		assert_eq!(filter, Filter::from_static("alpha/beta/gamma"));
+	}
+
+	#[test]
+	#[cfg(feature = "serde")]
+	fn serialize_filter() {
+		let filter: &Filter = Filter::from_static("gamma/beta/alpha");
+		let serialized = serde_json::to_string(&filter).unwrap();
+		assert_eq!(serialized, "\"gamma/beta/alpha\"");
+	}
+
+	#[test]
+	#[cfg(feature = "serde")]
+	fn deserialize_filter_buf() {
+		use crate::FilterBuf;
+
+		let filter: FilterBuf = serde_json::from_str("\"alpha/beta/gamma\"").unwrap();
+		assert_eq!(filter, FilterBuf::new("alpha/beta/gamma").unwrap());
+	}
+
+	#[test]
+	#[cfg(feature = "serde")]
+	fn serialize_filter_buf() {
+		use crate::FilterBuf;
+
+		let filter: FilterBuf = FilterBuf::new("gamma/beta/alpha").unwrap();
+		let serialized = serde_json::to_string(&filter).unwrap();
+		assert_eq!(serialized, "\"gamma/beta/alpha\"");
+	}
 }
 
 impl Matches {

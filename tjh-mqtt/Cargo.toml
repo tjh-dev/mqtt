@@ -31,5 +31,8 @@ serde = ["dep:serde"]
 tokio-client = ["dep:tokio", "dep:tokio-test", "dep:tracing"]
 tls = ["dep:tokio-rustls", "dep:webpki-roots"]
 
+[dev-dependencies]
+serde_json = "1.0.112"
+
 [package.metadata.docs.rs]
 all-features = true

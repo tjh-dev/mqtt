@@ -294,3 +294,45 @@ impl serde::Serialize for TopicBuf {
 		serializer.serialize_str(&self.0)
 	}
 }
+
+#[cfg(test)]
+mod tests {
+
+	#[test]
+	#[cfg(feature = "serde")]
+	fn deserialize_topic() {
+		use crate::Topic;
+
+		let topic: &Topic = serde_json::from_str("\"alpha/beta/gamma\"").unwrap();
+		assert_eq!(topic, Topic::from_static("alpha/beta/gamma"));
+	}
+
+	#[test]
+	#[cfg(feature = "serde")]
+	fn serialize_topic() {
+		use crate::Topic;
+
+		let topic: &Topic = Topic::from_static("gamma/beta/alpha");
+		let serialized = serde_json::to_string(&topic).unwrap();
+		assert_eq!(serialized, "\"gamma/beta/alpha\"");
+	}
+
+	#[test]
+	#[cfg(feature = "serde")]
+	fn deserialize_topic_buf() {
+		use crate::TopicBuf;
+
+		let topic: TopicBuf = serde_json::from_str("\"alpha/beta/gamma\"").unwrap();
+		assert_eq!(topic, TopicBuf::new("alpha/beta/gamma").unwrap());
+	}
+
+	#[test]
+	#[cfg(feature = "serde")]
+	fn serialize_topic_buf() {
+		use crate::TopicBuf;
+
+		let topic: TopicBuf = TopicBuf::new("gamma/beta/alpha").unwrap();
+		let serialized = serde_json::to_string(&topic).unwrap();
+		assert_eq!(serialized, "\"gamma/beta/alpha\"");
+	}
+}
