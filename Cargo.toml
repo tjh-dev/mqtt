@@ -5,6 +5,9 @@ members = [
   "tjh-mqtt-cli"
 ]
 
+[workspace.dependencies]
+tracing = "0.1.40"
+
 [profile.release]
 strip = true
 lto = "fat"

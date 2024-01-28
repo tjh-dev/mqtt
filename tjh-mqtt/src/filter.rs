@@ -146,7 +146,8 @@ impl Filter {
 		inner.split(LEVEL_SEPARATOR)
 	}
 
-	/// Creates a Filter from an `&'static str`. The validity of the filter is *not* checked.
+	/// Creates a Filter from an `&'static str`. The validity of the filter is
+	/// *not* checked.
 	///
 	/// # Example
 	/// ```

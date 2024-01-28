@@ -77,7 +77,8 @@ impl Topic {
 		inner.split('/')
 	}
 
-	/// Creates a Topic from an `&'static str`. The validity of the topic is *not* checked.
+	/// Creates a Topic from an `&'static str`. The validity of the topic is
+	/// *not* checked.
 	///
 	/// # Example
 	/// ```
