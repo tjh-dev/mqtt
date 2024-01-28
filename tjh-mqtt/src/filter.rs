@@ -1,6 +1,5 @@
 use crate::{Topic, TopicBuf};
-use std::{borrow, cmp, convert, ops};
-use thiserror::Error;
+use std::{borrow, cmp, convert, fmt, ops};
 
 const LEVEL_SEPARATOR: char = '/';
 const SINGLE_LEVEL_WILDCARD: char = '+';
@@ -12,12 +11,10 @@ const WILDCARDS: [char; 2] = [SINGLE_LEVEL_WILDCARD, MULTI_LEVEL_WILDCARD];
 const DEFAULT: &Filter = Filter::from_static(MULTI_LEVEL_WILDCARD_STR);
 
 /// An MQTT topic filter.
+///
+/// Internally this is just an `&str`. For the owned variant see [`FilterBuf`].
 #[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Filter(str);
-
-/// An owned MQTT topic Filter.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct FilterBuf(String);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Matches {
@@ -26,7 +23,7 @@ pub struct Matches {
 	pub multi_wildcard: usize,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum InvalidFilter {
 	#[error("filter cannot be empty")]
 	Empty,
@@ -77,10 +74,6 @@ impl Filter {
 		Ok(unsafe { &*(filter as *const str as *const Filter) })
 	}
 
-	fn from_str(s: &str) -> &Self {
-		unsafe { &*(s as *const str as *const Filter) }
-	}
-
 	/// Checks `topic` to determine if it would be matched by the `Filter`.
 	///
 	/// Returns `None` if the topic does not match. If `topic` does match, a
@@ -118,23 +111,14 @@ impl Filter {
 
 	/// Returns the length of the filter in bytes when encoded as UTF-8.
 	#[inline]
-	pub fn len(&self) -> usize {
+	pub const fn len(&self) -> usize {
 		let Self(inner) = self;
 		inner.len()
 	}
 
-	/// Returns `true` if the filter has length of zero bytes.
-	///
-	/// Empty filters are not valid, so this should *always* be `false`.
-	#[inline]
-	pub fn is_empty(&self) -> bool {
-		let Self(inner) = self;
-		inner.is_empty()
-	}
-
 	/// Returns the inner filter.
 	#[inline]
-	pub fn as_str(&self) -> &str {
+	pub const fn as_str(&self) -> &str {
 		let Self(inner) = self;
 		inner
 	}
@@ -146,15 +130,37 @@ impl Filter {
 	}
 
 	/// Returns an iterator over the levels of the filter.
+	///
+	/// # Example
+	/// ```
+	/// # use tjh_mqtt::Filter;
+	/// let mut levels = Filter::new("a/b/c").unwrap().levels();
+	/// assert_eq!(levels.next(), Some("a"));
+	/// assert_eq!(levels.next(), Some("b"));
+	/// assert_eq!(levels.next(), Some("c"));
+	/// assert_eq!(levels.next(), None);
+	/// ```
 	#[inline]
 	pub fn levels(&self) -> impl Iterator<Item = &str> {
 		let Self(inner) = self;
 		inner.split(LEVEL_SEPARATOR)
 	}
 
+	/// Creates a Filter from an `&'static str`. The validity of the filter is
+	/// *not* checked.
+	///
+	/// # Example
+	/// ```
+	/// # use tjh_mqtt::Filter;
+	/// const TOPIC: &Filter = Filter::from_static("a/b");
+	/// ```
 	#[inline]
 	pub const fn from_static(filter: &'static str) -> &'static Filter {
 		unsafe { &*(filter as *const str as *const Filter) }
+	}
+
+	const fn from_str(s: &str) -> &Self {
+		unsafe { &*(s as *const str as *const Filter) }
 	}
 }
 
@@ -187,11 +193,65 @@ impl ToOwned for Filter {
 	}
 }
 
+// Any valid topic is also a valid filter.
 impl<'a> From<&'a Topic> for &'a Filter {
 	fn from(value: &'a Topic) -> &'a Filter {
 		Filter::from_str(value.as_str())
 	}
 }
+
+impl fmt::Display for Filter {
+	#[inline]
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		let Self(inner) = self;
+		inner.fmt(f)
+	}
+}
+
+#[cfg(feature = "serde")]
+struct FilterVisitor;
+
+#[cfg(feature = "serde")]
+impl<'de> serde::de::Visitor<'de> for FilterVisitor {
+	type Value = &'de Filter;
+
+	fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+		formatter.write_str("an MQTT filter")
+	}
+
+	fn visit_borrowed_str<E>(self, v: &'de str) -> Result<Self::Value, E>
+	where
+		E: serde::de::Error,
+	{
+		let filter = Filter::new(v).map_err(serde::de::Error::custom)?;
+		Ok(filter)
+	}
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for &'de Filter {
+	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+	where
+		D: serde::Deserializer<'de>,
+	{
+		deserializer.deserialize_str(FilterVisitor)
+	}
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for Filter {
+	#[inline]
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer,
+	{
+		serializer.serialize_str(&self.0)
+	}
+}
+
+/// An owned MQTT topic Filter.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FilterBuf(String);
 
 impl FilterBuf {
 	#[inline]
@@ -201,6 +261,10 @@ impl FilterBuf {
 		// Check the filter is valid
 		Filter::new(&filter)?;
 		Ok(Self(filter))
+	}
+
+	pub fn to_inner(self) -> String {
+		self.0
 	}
 }
 
@@ -281,11 +345,67 @@ impl From<convert::Infallible> for InvalidFilter {
 	}
 }
 
+impl fmt::Display for FilterBuf {
+	#[inline]
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		let Self(inner) = self;
+		inner.fmt(f)
+	}
+}
+
+#[cfg(feature = "serde")]
+struct FilterBufVisitor;
+
+#[cfg(feature = "serde")]
+impl<'de> serde::de::Visitor<'de> for FilterBufVisitor {
+	type Value = FilterBuf;
+
+	fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+		formatter.write_str("an MQTT topic")
+	}
+
+	fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+	where
+		E: serde::de::Error,
+	{
+		let filter = FilterBuf::new(v).map_err(serde::de::Error::custom)?;
+		Ok(filter)
+	}
+
+	fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+	where
+		E: serde::de::Error,
+	{
+		let filter = FilterBuf::new(v).map_err(serde::de::Error::custom)?;
+		Ok(filter)
+	}
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for FilterBuf {
+	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+	where
+		D: serde::Deserializer<'de>,
+	{
+		deserializer.deserialize_string(FilterBufVisitor)
+	}
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for FilterBuf {
+	#[inline]
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer,
+	{
+		serializer.serialize_str(&self.0)
+	}
+}
+
 #[cfg(test)]
 mod tests {
-	use crate::Topic;
-
 	use super::{Filter, Matches};
+	use crate::Topic;
 
 	#[test]
 	fn parses_filters() {
@@ -336,6 +456,40 @@ mod tests {
 				multi_wildcard: 2
 			})
 		);
+	}
+
+	#[test]
+	#[cfg(feature = "serde")]
+	fn deserialize_filter() {
+		let filter: &Filter = serde_json::from_str("\"alpha/beta/gamma\"").unwrap();
+		assert_eq!(filter, Filter::from_static("alpha/beta/gamma"));
+	}
+
+	#[test]
+	#[cfg(feature = "serde")]
+	fn serialize_filter() {
+		let filter: &Filter = Filter::from_static("gamma/beta/alpha");
+		let serialized = serde_json::to_string(&filter).unwrap();
+		assert_eq!(serialized, "\"gamma/beta/alpha\"");
+	}
+
+	#[test]
+	#[cfg(feature = "serde")]
+	fn deserialize_filter_buf() {
+		use crate::FilterBuf;
+
+		let filter: FilterBuf = serde_json::from_str("\"alpha/beta/gamma\"").unwrap();
+		assert_eq!(filter, FilterBuf::new("alpha/beta/gamma").unwrap());
+	}
+
+	#[test]
+	#[cfg(feature = "serde")]
+	fn serialize_filter_buf() {
+		use crate::FilterBuf;
+
+		let filter: FilterBuf = FilterBuf::new("gamma/beta/alpha").unwrap();
+		let serialized = serde_json::to_string(&filter).unwrap();
+		assert_eq!(serialized, "\"gamma/beta/alpha\"");
 	}
 }
 

@@ -52,8 +52,21 @@ pub struct Will<'a> {
 	pub retain: bool,
 }
 
+#[allow(unused)]
 #[derive(Debug)]
 pub(crate) struct WrappingNonZeroU16(NonZeroU16);
+
+#[allow(unused)]
+impl WrappingNonZeroU16 {
+	// pub const MIN: Self = Self(NonZeroU16::MIN);
+	pub const MAX: Self = Self(NonZeroU16::MAX);
+
+	#[inline]
+	pub fn get(&self) -> NonZeroU16 {
+		let Self(inner) = self;
+		*inner
+	}
+}
 
 impl Default for WrappingNonZeroU16 {
 	#[inline]
@@ -67,16 +80,5 @@ impl ops::AddAssign<u16> for WrappingNonZeroU16 {
 	fn add_assign(&mut self, rhs: u16) {
 		let Self(inner) = self;
 		*inner = inner.checked_add(rhs).unwrap_or(NonZeroU16::MIN);
-	}
-}
-
-impl WrappingNonZeroU16 {
-	// pub const MIN: Self = Self(NonZeroU16::MIN);
-	pub const MAX: Self = Self(NonZeroU16::MAX);
-
-	#[inline]
-	pub fn get(&self) -> NonZeroU16 {
-		let Self(inner) = self;
-		*inner
 	}
 }

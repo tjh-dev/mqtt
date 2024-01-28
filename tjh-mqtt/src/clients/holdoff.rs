@@ -1,6 +1,7 @@
 use core::time::Duration;
 use std::{cmp, ops::Range};
 
+#[allow(unused)]
 #[derive(Debug)]
 pub struct HoldOff {
 	min: Duration,
@@ -8,6 +9,7 @@ pub struct HoldOff {
 	cur: Option<Duration>,
 }
 
+#[allow(unused)]
 impl HoldOff {
 	pub fn new(r: Range<Duration>) -> Self {
 		Self {
