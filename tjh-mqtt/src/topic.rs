@@ -161,6 +161,17 @@ impl<'de> serde::Deserialize<'de> for &'de Topic {
 	}
 }
 
+#[cfg(feature = "serde")]
+impl serde::Serialize for Topic {
+	#[inline]
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer,
+	{
+		serializer.serialize_str(&self.0)
+	}
+}
+
 /// An owned MQTT topic.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TopicBuf(String);
@@ -264,10 +275,22 @@ impl<'de> serde::de::Visitor<'de> for TopicBufVisitor {
 
 #[cfg(feature = "serde")]
 impl<'de> serde::Deserialize<'de> for TopicBuf {
+	#[inline]
 	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
 	where
 		D: serde::Deserializer<'de>,
 	{
 		deserializer.deserialize_string(TopicBufVisitor)
+	}
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for TopicBuf {
+	#[inline]
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer,
+	{
+		serializer.serialize_str(&self.0)
 	}
 }

@@ -238,6 +238,17 @@ impl<'de> serde::Deserialize<'de> for &'de Filter {
 	}
 }
 
+#[cfg(feature = "serde")]
+impl serde::Serialize for Filter {
+	#[inline]
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer,
+	{
+		serializer.serialize_str(&self.0)
+	}
+}
+
 /// An owned MQTT topic Filter.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FilterBuf(String);
@@ -377,6 +388,17 @@ impl<'de> serde::Deserialize<'de> for FilterBuf {
 		D: serde::Deserializer<'de>,
 	{
 		deserializer.deserialize_string(FilterBufVisitor)
+	}
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for FilterBuf {
+	#[inline]
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer,
+	{
+		serializer.serialize_str(&self.0)
 	}
 }
 
