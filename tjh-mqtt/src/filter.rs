@@ -404,6 +404,27 @@ impl serde::Serialize for FilterBuf {
 	}
 }
 
+impl Matches {
+	#[inline]
+	pub fn score(&self) -> usize {
+		self.exact * 100 + self.wildcard * 10 + self.multi_wildcard
+	}
+}
+
+impl cmp::PartialOrd for Matches {
+	#[inline]
+	fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+		Some(self.cmp(other))
+	}
+}
+
+impl cmp::Ord for Matches {
+	#[inline]
+	fn cmp(&self, other: &Self) -> cmp::Ordering {
+		self.score().cmp(&other.score())
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::{Filter, Matches};
@@ -492,26 +513,5 @@ mod tests {
 		let filter: FilterBuf = FilterBuf::new("gamma/beta/alpha").unwrap();
 		let serialized = serde_json::to_string(&filter).unwrap();
 		assert_eq!(serialized, "\"gamma/beta/alpha\"");
-	}
-}
-
-impl Matches {
-	#[inline]
-	pub fn score(&self) -> usize {
-		self.exact * 100 + self.wildcard * 10 + self.multi_wildcard
-	}
-}
-
-impl cmp::PartialOrd for Matches {
-	#[inline]
-	fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-		Some(self.cmp(other))
-	}
-}
-
-impl cmp::Ord for Matches {
-	#[inline]
-	fn cmp(&self, other: &Self) -> cmp::Ordering {
-		self.score().cmp(&other.score())
 	}
 }
