@@ -43,15 +43,18 @@ impl Topic {
 	/// Returns the length of the topic in bytes when encoded as UTF-8.
 	#[inline]
 	pub const fn len(&self) -> usize {
-		let Self(inner) = self;
-		inner.len()
+		self.0.len()
+	}
+
+	#[inline]
+	pub const fn is_empty(&self) -> bool {
+		self.0.is_empty()
 	}
 
 	/// Returns the inner topic str.
 	#[inline]
 	pub const fn as_str(&self) -> &str {
-		let Self(inner) = self;
-		inner
+		&self.0
 	}
 
 	/// Converts a `Topic` to an owned [`TopicBuf`]
@@ -73,8 +76,7 @@ impl Topic {
 	/// ```
 	#[inline]
 	pub fn levels(&self) -> impl Iterator<Item = &str> {
-		let Self(inner) = self;
-		inner.split('/')
+		self.0.split('/')
 	}
 
 	/// Creates a Topic from an `&'static str`. The validity of the topic is

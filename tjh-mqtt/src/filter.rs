@@ -112,15 +112,18 @@ impl Filter {
 	/// Returns the length of the filter in bytes when encoded as UTF-8.
 	#[inline]
 	pub const fn len(&self) -> usize {
-		let Self(inner) = self;
-		inner.len()
+		self.0.len()
+	}
+
+	#[inline]
+	pub const fn is_empty(&self) -> bool {
+		self.0.is_empty()
 	}
 
 	/// Returns the inner filter.
 	#[inline]
 	pub const fn as_str(&self) -> &str {
-		let Self(inner) = self;
-		inner
+		&self.0
 	}
 
 	/// Converts a `Filter` to a owned [`FilterBuf`]
@@ -142,8 +145,7 @@ impl Filter {
 	/// ```
 	#[inline]
 	pub fn levels(&self) -> impl Iterator<Item = &str> {
-		let Self(inner) = self;
-		inner.split(LEVEL_SEPARATOR)
+		self.0.split(LEVEL_SEPARATOR)
 	}
 
 	/// Creates a Filter from an `&'static str`. The validity of the filter is
@@ -402,6 +404,27 @@ impl serde::Serialize for FilterBuf {
 	}
 }
 
+impl Matches {
+	#[inline]
+	pub fn score(&self) -> usize {
+		self.exact * 100 + self.wildcard * 10 + self.multi_wildcard
+	}
+}
+
+impl cmp::PartialOrd for Matches {
+	#[inline]
+	fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+		Some(self.cmp(other))
+	}
+}
+
+impl cmp::Ord for Matches {
+	#[inline]
+	fn cmp(&self, other: &Self) -> cmp::Ordering {
+		self.score().cmp(&other.score())
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::{Filter, Matches};
@@ -490,26 +513,5 @@ mod tests {
 		let filter: FilterBuf = FilterBuf::new("gamma/beta/alpha").unwrap();
 		let serialized = serde_json::to_string(&filter).unwrap();
 		assert_eq!(serialized, "\"gamma/beta/alpha\"");
-	}
-}
-
-impl Matches {
-	#[inline]
-	pub fn score(&self) -> usize {
-		self.exact * 100 + self.wildcard * 10 + self.multi_wildcard
-	}
-}
-
-impl cmp::PartialOrd for Matches {
-	#[inline]
-	fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-		Some(self.cmp(other))
-	}
-}
-
-impl cmp::Ord for Matches {
-	#[inline]
-	fn cmp(&self, other: &Self) -> cmp::Ordering {
-		self.score().cmp(&other.score())
 	}
 }
