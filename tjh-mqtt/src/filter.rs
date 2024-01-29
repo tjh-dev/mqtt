@@ -112,15 +112,18 @@ impl Filter {
 	/// Returns the length of the filter in bytes when encoded as UTF-8.
 	#[inline]
 	pub const fn len(&self) -> usize {
-		let Self(inner) = self;
-		inner.len()
+		self.0.len()
+	}
+
+	#[inline]
+	pub const fn is_empty(&self) -> bool {
+		self.0.is_empty()
 	}
 
 	/// Returns the inner filter.
 	#[inline]
 	pub const fn as_str(&self) -> &str {
-		let Self(inner) = self;
-		inner
+		&self.0
 	}
 
 	/// Converts a `Filter` to a owned [`FilterBuf`]
@@ -142,8 +145,7 @@ impl Filter {
 	/// ```
 	#[inline]
 	pub fn levels(&self) -> impl Iterator<Item = &str> {
-		let Self(inner) = self;
-		inner.split(LEVEL_SEPARATOR)
+		self.0.split(LEVEL_SEPARATOR)
 	}
 
 	/// Creates a Filter from an `&'static str`. The validity of the filter is
