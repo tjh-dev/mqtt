@@ -207,8 +207,7 @@ impl<'a> From<&'a Topic> for &'a Filter {
 impl fmt::Display for Filter {
 	#[inline]
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		let Self(inner) = self;
-		inner.fmt(f)
+		self.0.fmt(f)
 	}
 }
 
@@ -283,8 +282,7 @@ impl ops::Deref for FilterBuf {
 	type Target = Filter;
 	#[inline]
 	fn deref(&self) -> &Self::Target {
-		let Self(inner) = self;
-		Filter::from_str(inner)
+		Filter::from_str(&self.0)
 	}
 }
 
@@ -299,8 +297,7 @@ impl borrow::Borrow<Filter> for FilterBuf {
 impl From<&Filter> for FilterBuf {
 	#[inline]
 	fn from(value: &Filter) -> Self {
-		let Filter(inner) = value;
-		Self(String::from(inner))
+		Self(String::from(&value.0))
 	}
 }
 
@@ -346,5 +343,12 @@ impl From<TopicBuf> for FilterBuf {
 impl From<convert::Infallible> for InvalidFilter {
 	fn from(_: convert::Infallible) -> Self {
 		unreachable!()
+	}
+}
+
+impl fmt::Display for FilterBuf {
+	#[inline]
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		self.0.fmt(f)
 	}
 }

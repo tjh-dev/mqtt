@@ -128,8 +128,7 @@ impl<'t> TryFrom<&'t str> for &'t Topic {
 impl fmt::Display for Topic {
 	#[inline]
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		let Self(inner) = self;
-		inner.fmt(f)
+		self.0.fmt(f)
 	}
 }
 
@@ -196,8 +195,7 @@ impl ops::Deref for TopicBuf {
 	type Target = Topic;
 	#[inline]
 	fn deref(&self) -> &Self::Target {
-		let Self(inner) = self;
-		Topic::from_str(inner)
+		Topic::from_str(&self.0)
 	}
 }
 
@@ -212,8 +210,7 @@ impl borrow::Borrow<Topic> for TopicBuf {
 impl From<&Topic> for TopicBuf {
 	#[inline]
 	fn from(value: &Topic) -> Self {
-		let Topic(inner) = value;
-		Self(String::from(inner))
+		Self(String::from(&value.0))
 	}
 }
 
@@ -242,8 +239,7 @@ impl TryFrom<String> for TopicBuf {
 impl fmt::Display for TopicBuf {
 	#[inline]
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		let Self(inner) = self;
-		inner.fmt(f)
+		self.0.fmt(f)
 	}
 }
 
