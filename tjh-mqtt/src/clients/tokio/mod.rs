@@ -107,11 +107,12 @@ pub fn tcp_client<'o>(
 				#[cfg(feature = "tls")]
 				true => {
 					use std::sync::Arc;
-					use tokio_rustls::{rustls::ServerName, TlsConnector};
+					use tokio_rustls::rustls::pki_types::ServerName;
+					use tokio_rustls::TlsConnector;
 
 					let config = tls::configure_tls();
 					let connector = TlsConnector::from(Arc::clone(&config));
-					let dnsname = ServerName::try_from(options.host.as_str()).unwrap();
+					let dnsname = ServerName::try_from(options.host.as_str())?.to_owned();
 
 					let stream = connector.connect(dnsname, stream).await?;
 					MqttStream::new(Box::new(stream), 8 * 1024)
@@ -139,21 +140,14 @@ pub fn tcp_client<'o>(
 #[cfg(feature = "tls")]
 mod tls {
 	use std::sync::Arc;
-	use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
+	use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 
 	pub fn configure_tls() -> Arc<ClientConfig> {
 		let mut root_cert_store = RootCertStore::empty();
-		root_cert_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
-			OwnedTrustAnchor::from_subject_spki_name_constraints(
-				ta.subject,
-				ta.spki,
-				ta.name_constraints,
-			)
-		}));
+		root_cert_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 
 		Arc::new(
 			ClientConfig::builder()
-				.with_safe_defaults()
 				.with_root_certificates(root_cert_store)
 				.with_no_client_auth(),
 		)
