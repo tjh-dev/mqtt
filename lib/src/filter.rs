@@ -1,5 +1,5 @@
 use crate::{Topic, TopicBuf};
-use std::{borrow, cmp, convert, fmt, ops};
+use std::{borrow, convert, fmt, ops};
 
 const LEVEL_SEPARATOR: char = '/';
 const SINGLE_LEVEL_WILDCARD: char = '+';
