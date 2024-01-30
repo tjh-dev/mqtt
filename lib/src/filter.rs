@@ -352,3 +352,53 @@ impl fmt::Display for FilterBuf {
 		self.0.fmt(f)
 	}
 }
+
+#[cfg(feature = "serde")]
+struct FilterBufVisitor;
+
+#[cfg(feature = "serde")]
+impl<'de> serde::de::Visitor<'de> for FilterBufVisitor {
+	type Value = FilterBuf;
+
+	fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+		formatter.write_str("an MQTT topic")
+	}
+
+	fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+	where
+		E: serde::de::Error,
+	{
+		let filter = FilterBuf::new(v).map_err(serde::de::Error::custom)?;
+		Ok(filter)
+	}
+
+	fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+	where
+		E: serde::de::Error,
+	{
+		let filter = FilterBuf::new(v).map_err(serde::de::Error::custom)?;
+		Ok(filter)
+	}
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for FilterBuf {
+	#[inline]
+	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+	where
+		D: serde::Deserializer<'de>,
+	{
+		deserializer.deserialize_string(FilterBufVisitor)
+	}
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for FilterBuf {
+	#[inline]
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer,
+	{
+		serializer.serialize_str(&self.0)
+	}
+}
