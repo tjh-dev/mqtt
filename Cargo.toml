@@ -5,6 +5,10 @@ members = [
   "lib"
 ]
 
+[workspace.dependencies]
+tokio = "1.35.1"
+tracing = "0.1.40"
+
 [profile.release]
 strip = true
 lto = "fat"

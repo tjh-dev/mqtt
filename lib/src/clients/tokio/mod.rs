@@ -105,28 +105,16 @@ pub fn tcp_client(
 #[cfg(feature = "tls")]
 mod tls {
 	use std::sync::Arc;
-	use tokio_rustls::{
-		rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore},
-		TlsConnector,
-	};
+	use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 
-	pub fn configure_tls() -> TlsConnector {
+	pub fn configure_tls() -> Arc<ClientConfig> {
 		let mut root_cert_store = RootCertStore::empty();
-		root_cert_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
-			OwnedTrustAnchor::from_subject_spki_name_constraints(
-				ta.subject,
-				ta.spki,
-				ta.name_constraints,
-			)
-		}));
+		root_cert_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 
-		let config = Arc::new(
+		Arc::new(
 			ClientConfig::builder()
-				.with_safe_defaults()
 				.with_root_certificates(root_cert_store)
 				.with_no_client_auth(),
-		);
-
-		TlsConnector::from(config)
+		)
 	}
 }

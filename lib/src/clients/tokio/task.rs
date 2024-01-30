@@ -2,7 +2,7 @@ use super::{mqtt_stream::MqttStream, Command, CommandRx, StateError};
 use crate::{
 	clients::{
 		command::{PublishCommand, SubscribeCommand, UnsubscribeCommand},
-		tokio::Message,
+		Message,
 	},
 	packets, FilterBuf, Packet, PacketType, QoS,
 };

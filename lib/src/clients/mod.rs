@@ -1,4 +1,5 @@
 mod conv;
+mod message;
 mod state;
 
 #[cfg(feature = "tokio-client")]
@@ -10,39 +11,17 @@ pub(crate) mod command;
 #[cfg(feature = "tokio-client")]
 mod holdoff;
 
-use crate::{misc::Will, TopicBuf};
-use bytes::Bytes;
+use crate::misc::Will;
 
 pub use self::{
 	conv::{Filters, FiltersWithQoS},
+	message::Message,
 	state::{ClientState, StateError},
 };
 
 pub const DEFAULT_MQTT_HOST: &str = "localhost";
 pub const DEFAULT_MQTT_PORT: u16 = 1883;
 pub const DEFAULT_MQTTS_PORT: u16 = 8883;
-
-/// A published message received from the Server.
-#[derive(Debug)]
-pub struct Message {
-	/// Message topic.
-	pub topic: TopicBuf,
-	/// Indicates whether the sender of the message set the retain flag.
-	pub retain: bool,
-	/// Message payload.
-	pub payload: Bytes,
-}
-
-impl<T: Into<TopicBuf>> From<(T, bool, Bytes)> for Message {
-	#[inline]
-	fn from((topic, retain, payload): (T, bool, Bytes)) -> Self {
-		Self {
-			topic: topic.into(),
-			retain,
-			payload,
-		}
-	}
-}
 
 /// Transport options.
 #[derive(Debug)]
