@@ -16,13 +16,6 @@ const DEFAULT: &Filter = Filter::from_static(MULTI_LEVEL_WILDCARD_STR);
 #[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Filter(str);
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Matches {
-	pub exact: usize,
-	pub wildcard: usize,
-	pub multi_wildcard: usize,
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum InvalidFilter {
 	#[error("filter cannot be empty")]
