@@ -15,9 +15,10 @@ bytes = "1.5.0"
 serde = { version = "1.0.195", optional = true }
 thiserror = { version = "1.0.56" }
 tokio = { workspace = true, optional = true, features = [
+  "io-util",
   "macros",
   "net",
-  "io-util",
+  "rt",
   "sync",
   "time"
 ] }

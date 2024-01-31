@@ -17,21 +17,6 @@ async fn main() -> mqtt::Result<()> {
 	let arguments = Arguments::parse();
 	let Arguments { command, qos, .. } = arguments;
 
-	// let transport = TcpConfiguration {
-	// 	host: arguments.host,
-	// 	port: arguments
-	// 		.port
-	// 		.unwrap_or(if arguments.tls { 8883 } else { 1883 }),
-	// 	tls: arguments.tls,
-	// 	linger: true,
-	// };
-
-	// let config = ClientConfiguration {
-	// 	client_id: build_client_id(!arguments.disable_clean_session),
-	// 	keep_alive: arguments.keep_alive,
-	// 	..Default::default()
-	// };
-	println!("{:?}", arguments.host);
 	let server_url: url::Url = if arguments.host.contains("://") {
 		arguments.host.as_str().try_into()?
 	} else {

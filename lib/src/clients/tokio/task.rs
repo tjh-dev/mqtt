@@ -22,6 +22,7 @@ type ClientState = super::ClientState<
 	oneshot::Sender<()>,
 >;
 
+/// Sends a ConnAck packet to the Server and waits for a response.
 pub async fn wait_for_connack(
 	state: &mut ClientState,
 	connection: &mut MqttStream,
@@ -46,7 +47,6 @@ pub async fn wait_for_connack(
 	// TODO: Check return code.
 
 	Ok(connack)
-	// connected_task(state, command_channel, connection, session_present).await
 }
 
 pub async fn connected_task(
