@@ -11,9 +11,9 @@ documentation = "https://docs.rs/crate/tjh-mqtt/latest"
 readme = "README.md"
 
 [dependencies]
-mqtt-protocol = { version = "0.1.0", path = "../mqtt-protocol" }
-mqtt-client = { version = "0.1.0", path = "../mqtt-client" }
-mqtt-tokio = { version = "0.1.0", path = "../mqtt-tokio", optional = true }
+mqtt-protocol = { path = "../mqtt-protocol" }
+mqtt-client = { path = "../mqtt-client" }
+mqtt-tokio = { path = "../mqtt-tokio", optional = true }
 
 [features]
 default = []
