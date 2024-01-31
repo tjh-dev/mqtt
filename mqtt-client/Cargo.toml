@@ -1,0 +1,16 @@
+[package]
+name = "mqtt-client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bytes = { workspace = true }
+mqtt-protocol = { path = "../mqtt-protocol" }
+thiserror = { workspace = true }
+url = { version = "2.5.0", optional = true }
+
+[features]
+default = []
+tls = []
+url = ["dep:url"]
+async = []
