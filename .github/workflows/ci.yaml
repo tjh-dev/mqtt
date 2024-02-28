@@ -11,7 +11,7 @@ env:
 
 jobs:
   check_test:
-    runs-on: [self-hosted, linux]
+    runs-on: self-hosted
     steps:
     - uses: actions/checkout@v3
     - name: Clippy Check
